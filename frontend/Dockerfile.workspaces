@@ -1,0 +1,70 @@
+FROM node:20 AS deps
+WORKDIR /repo
+RUN corepack enable && corepack prepare yarn@4.3.1 --activate
+RUN printf "nodeLinker: node-modules\n" > .yarnrc.yml
+
+# Copy package files first for better layer caching
+COPY package.json yarn.lock .yarnrc.yml ./
+COPY backend/package.json ./backend/
+COPY frontend/package.json ./frontend/
+COPY packages/workflow-backend-express/package.json ./packages/workflow-backend-express/
+COPY packages/workflow-client/package.json ./packages/workflow-client/
+COPY packages/workflow-ui-core/package.json ./packages/workflow-ui-core/
+COPY packages/workflow-react/package.json ./packages/workflow-react/
+COPY packages/workflow-e2e-tests/package.json ./packages/workflow-e2e-tests/
+
+# Install with BuildKit cache mount
+ENV YARN_ENABLE_IMMUTABLE_INSTALLS=false
+RUN --mount=type=cache,target=/root/.yarn/berry/cache \
+    yarn install && \
+    yarn workspaces focus frontend
+
+# Now copy source files
+COPY . .
+
+FROM node:20 AS builder
+WORKDIR /repo
+COPY --from=deps /repo /repo
+RUN corepack enable && corepack prepare yarn@4.3.1 --activate
+
+# Use placeholder for runtime injection
+# This gets replaced at container startup with actual runtime values
+ENV NEXT_PUBLIC_API_URL=__RUNTIME_API_URL__
+ENV NEXT_PUBLIC_API_BASE_URL=__RUNTIME_API_URL__
+
+# Build workspace dependencies in parallel where possible, then frontend
+# workflow-client and workflow-ui-core have no deps on each other - build in parallel
+RUN yarn workspace @ajna-inc/workflow-client build & \
+    yarn workspace @ajna-inc/workflow-ui-core build & \
+    wait && \
+    yarn workspace @ajna-inc/workflow-react build && \
+    yarn workspace frontend build
+
+FROM node:20 AS proddeps
+WORKDIR /repo
+COPY --from=deps /repo /repo
+RUN corepack enable && corepack prepare yarn@4.3.1 --activate
+RUN --mount=type=cache,target=/root/.yarn/berry/cache \
+    yarn workspaces focus frontend --production
+
+FROM node:20-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Copy Next.js build artifacts and production deps
+COPY --from=builder /repo/frontend/.next ./.next
+COPY --from=builder /repo/frontend/public ./public
+COPY --from=builder /repo/frontend/package.json ./package.json
+COPY --from=proddeps /repo/node_modules ./node_modules
+# Copy BUILT workspace packages for any runtime imports
+COPY --from=builder /repo/packages ./packages
+
+# Copy the entrypoint script for runtime config injection
+COPY frontend/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+EXPOSE 3000
+
+# Use entrypoint for runtime config, then start Next.js
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["node", "node_modules/next/dist/bin/next", "start", "-p", "3000"]

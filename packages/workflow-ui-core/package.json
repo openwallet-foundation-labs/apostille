@@ -1,0 +1,19 @@
+{
+  "name": "@ajna-inc/workflow-ui-core",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf build",
+    "test": "node -e 'console.log(\"ok\")'"
+  },
+  "dependencies": {
+    "jmespath": "^0.16.0"
+  },
+  "devDependencies": {
+    "@types/jmespath": "^0.15.2",
+    "typescript": "^5.4.0"
+  }
+}

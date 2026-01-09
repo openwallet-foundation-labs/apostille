@@ -1,0 +1,15 @@
+{
+  "name": "@ajna-inc/workflow-client",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf build",
+    "test": "node -e 'console.log(\"ok\")'"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

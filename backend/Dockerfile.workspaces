@@ -1,0 +1,56 @@
+FROM node:20 AS deps
+WORKDIR /repo
+
+# Enable Yarn 4 (node-modules linker in containers)
+RUN corepack enable && corepack prepare yarn@4.3.1 --activate
+RUN printf "nodeLinker: node-modules\n" > .yarnrc.yml
+
+# Copy package files first for better layer caching
+COPY package.json yarn.lock .yarnrc.yml ./
+COPY backend/package.json ./backend/
+COPY frontend/package.json ./frontend/
+COPY packages/workflow-backend-express/package.json ./packages/workflow-backend-express/
+COPY packages/workflow-client/package.json ./packages/workflow-client/
+COPY packages/workflow-ui-core/package.json ./packages/workflow-ui-core/
+COPY packages/workflow-react/package.json ./packages/workflow-react/
+COPY packages/workflow-e2e-tests/package.json ./packages/workflow-e2e-tests/
+
+# Install with BuildKit cache mount for faster rebuilds
+ENV YARN_ENABLE_IMMUTABLE_INSTALLS=false
+RUN --mount=type=cache,target=/root/.yarn/berry/cache \
+    yarn install && \
+    yarn workspaces focus esse-studio-backend
+
+# Now copy source files
+COPY . .
+
+FROM node:20 AS builder
+WORKDIR /repo
+COPY --from=deps /repo /repo
+RUN corepack enable && corepack prepare yarn@4.3.1 --activate
+
+# Build workspace dependency and backend in one layer
+RUN yarn workspace @ajna-inc/workflow-backend-express build && \
+    yarn workspace esse-studio-backend build
+
+# Create a production-only node_modules set for runtime
+FROM node:20 AS proddeps
+WORKDIR /repo
+COPY --from=deps /repo /repo
+RUN corepack enable && corepack prepare yarn@4.3.1 --activate
+RUN --mount=type=cache,target=/root/.yarn/berry/cache \
+    yarn workspaces focus esse-studio-backend --production
+
+FROM node:20-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Only copy what the backend needs at runtime
+COPY --from=proddeps /repo/node_modules ./node_modules
+# Copy BUILT packages from builder stage (not unbuilt from proddeps)
+COPY --from=builder /repo/packages ./packages
+COPY --from=builder /repo/backend/dist ./dist
+COPY backend/package.json ./package.json
+
+EXPOSE 3002 3003 3004
+CMD ["node", "dist/index.js"]

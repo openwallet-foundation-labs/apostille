@@ -1,0 +1,83 @@
+# Docker Compose for ESSI Studio - Production
+#
+# IMPORTANT: Create a .env file with required credentials before running.
+# See .env.example for required variables.
+#
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - POSTGRES_DB=${DB_NAME:-verifiable_ai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Express backend service
+  backend:
+    image: esse_studio/backend:latest
+    platform: linux/amd64
+    ports:
+      - "3001:3001"  # Agent port
+      - "3002:3002"  # API port
+    env_file:
+      - ./.env
+    environment:
+      - PORT=3002
+      - AGENT_PORT=3001
+      - AGENT_ENDPOINT=${AGENT_ENDPOINT:?AGENT_ENDPOINT is required}
+      - NODE_ENV=production
+      - PYTHON=/usr/bin/python3
+      - ETHEREUM_RPC_URL=${ETHEREUM_RPC_URL}
+      - ETHEREUM_PRIVATE_KEY=${ETHEREUM_PRIVATE_KEY}
+      - MAIN_WALLET_ID=${MAIN_WALLET_ID:?MAIN_WALLET_ID is required}
+      - MAIN_WALLET_KEY=${MAIN_WALLET_KEY:?MAIN_WALLET_KEY is required}
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${DB_NAME:-verifiable_ai}
+      - DB_HOST=postgres
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=${DB_NAME:-verifiable_ai}
+      - DB_PORT=5432
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+    restart: unless-stopped
+    volumes:
+      - backend_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Next.js frontend service
+  # Note: NEXT_PUBLIC_API_URL is injected at container startup (not build time)
+  frontend:
+    image: esse_studio/frontend:latest
+    platform: linux/amd64
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./.env
+    depends_on:
+      - backend
+    environment:
+      - NODE_ENV=production
+      # Runtime API URL - injected by docker-entrypoint.sh
+      # Use the PUBLIC_URL since this is what browsers will access
+      - NEXT_PUBLIC_API_URL=${PUBLIC_URL:?PUBLIC_URL is required}
+
+volumes:
+  backend_data:
+  postgres_data:
+
+networks:
+  default:
+    name: esse-studio-network

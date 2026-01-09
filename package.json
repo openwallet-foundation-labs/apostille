@@ -1,0 +1,52 @@
+{
+  "name": "credo-app-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monorepo for essi App and related packages",
+  "workspaces": [
+    "backend",
+    "frontend",
+    "packages/*"
+  ],
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "install:backend": "cd backend && yarn install",
+    "install:frontend": "cd frontend && yarn install",
+    "install:all": "yarn install:backend && yarn install:frontend",
+    "deploy:install": "YARN_ENABLE_IMMUTABLE_INSTALLS=false yarn install && yarn install:all",
+    "dev:backend": "cd backend && yarn dev",
+    "dev:frontend": "cd frontend && yarn dev",
+    "dev": "dotenv -e .env concurrently \"yarn dev:backend\" \"yarn dev:frontend\"",
+    "build:backend": "cd backend && yarn build",
+    "build:frontend": "cd frontend && yarn build",
+    "build": "yarn build:backend && yarn build:frontend",
+    "start:backend": "cd backend && yarn start",
+    "start:frontend": "cd frontend && yarn start",
+    "start": "dotenv -e .env concurrently \"yarn start:backend\" \"yarn start:frontend\"",
+    "test:e2e:workflow": "yarn workspace @ajna-inc/workflow-e2e-tests test",
+    "e2e:ui": "yarn workspace frontend cypress run"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "dotenv-cli": "^7.3.0",
+    "jest-environment-jsdom": "^29.7.0"
+  },
+  "dependencies": {
+    "@openwallet-foundation/askar-nodejs": "^0.4.1",
+    "buffer": "^6.0.3",
+    "motion": "^12.23.3"
+  },
+  "packageManager": "yarn@4.3.1",
+  "resolutions": {
+    "@credo-ts/core": "0.5.17",
+    "@credo-ts/node": "0.5.17",
+    "@credo-ts/anoncreds": "0.5.17",
+    "@credo-ts/askar": "0.5.17",
+    "@credo-ts/cheqd": "0.5.17",
+    "@credo-ts/indy-vdr": "0.5.17",
+    "@credo-ts/tenants": "0.5.17",
+    "uint8arrays": "3.1.1"
+  }
+}

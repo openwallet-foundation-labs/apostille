@@ -1,0 +1,1 @@
+export { KanonAnonCredsRegistry } from './anoncreds'
