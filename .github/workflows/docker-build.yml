@@ -1,4 +1,4 @@
-name: Build, Push and Deploy
+name: Build and Push Docker Images
 
 on:
   push:
@@ -85,51 +85,3 @@ jobs:
             NEXT_PUBLIC_API_BASE_URL=${{ vars.API_URL || 'http://localhost:3002' }}
             INTERNAL_API_URL=${{ vars.API_URL || 'http://localhost:3002' }}
             EXTERNAL_API_URL=${{ vars.API_URL || 'http://localhost:3002' }}
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'latest'
-
-      - name: Configure Kubernetes credentials
-        run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-
-      - name: Apply Kubernetes manifests
-        run: |
-          kubectl apply -f k8s/esse-studio-deployment.yaml
-
-      - name: Restart deployments to pull new images
-        run: |
-          kubectl rollout restart deployment/esse-studio-backend
-          kubectl rollout restart deployment/esse-studio-frontend
-
-      - name: Wait for backend rollout
-        run: |
-          kubectl rollout status deployment/esse-studio-backend --timeout=300s
-
-      - name: Wait for frontend rollout
-        run: |
-          kubectl rollout status deployment/esse-studio-frontend --timeout=300s
-
-      - name: Show deployment status
-        run: |
-          echo "=== Deployments ==="
-          kubectl get deployments esse-studio-backend esse-studio-frontend
-          echo ""
-          echo "=== Pods ==="
-          kubectl get pods -l app=esse-studio-backend
-          kubectl get pods -l app=esse-studio-frontend
-          echo ""
-          echo "=== Deployment Complete ==="
