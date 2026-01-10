@@ -721,6 +721,251 @@ export const signingApi = {
 };
 
 /**
+ * Vault API functions
+ * For encrypted vault storage and sharing
+ */
+export const vaultApi = {
+  /**
+   * List all vaults
+   */
+  getAll: async () => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/vaults`);
+  },
+
+  /**
+   * Get vault info by ID
+   */
+  getById: async (vaultId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/vaults/${vaultId}`);
+  },
+
+  /**
+   * Create a new vault with file upload
+   */
+  create: async (file: File, passphrase: string, description?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('passphrase', passphrase);
+    if (description) {
+      formData.append('description', description);
+    }
+
+    const token = getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/api/vaults`, {
+      method: 'POST',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      credentials: 'include',
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to create vault');
+    }
+    return data;
+  },
+
+  /**
+   * Delete a vault
+   */
+  delete: async (vaultId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/vaults/${vaultId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Open (decrypt) a vault
+   */
+  open: async (vaultId: string, passphrase: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/vaults/${vaultId}/open`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase }),
+    });
+  },
+
+  /**
+   * Update vault with new file
+   */
+  update: async (vaultId: string, file: File, passphrase: string, description?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('passphrase', passphrase);
+    if (description) {
+      formData.append('description', description);
+    }
+
+    const token = getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/api/vaults/${vaultId}`, {
+      method: 'PUT',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      credentials: 'include',
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to update vault');
+    }
+    return data;
+  },
+
+  /**
+   * Share vault with a connection
+   */
+  share: async (vaultId: string, connectionId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/vaults/${vaultId}/share`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connectionId }),
+    });
+  },
+
+  /**
+   * Check storage configuration status
+   */
+  getStorageStatus: async () => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/vaults/storage/status`);
+  },
+
+  /**
+   * Generate a new KEM keypair for vault sharing
+   */
+  generateKey: async () => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/vaults/keys/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+  },
+
+  /**
+   * Get all KEM keys
+   */
+  getKeys: async () => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/vaults/keys`);
+  },
+};
+
+/**
+ * PDF Signing API functions
+ * For PDF document signing workflows with vaults
+ */
+export const pdfSigningApi = {
+  /**
+   * Upload a PDF and create a vault
+   */
+  upload: async (file: File, passphrase: string, description?: string, signerConnectionId?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('passphrase', passphrase);
+    if (description) {
+      formData.append('description', description);
+    }
+    if (signerConnectionId) {
+      formData.append('signerConnectionId', signerConnectionId);
+    }
+
+    const token = getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/api/pdf-signing/upload`, {
+      method: 'POST',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      credentials: 'include',
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to upload PDF');
+    }
+    return data;
+  },
+
+  /**
+   * Sign a PDF stored in a vault
+   */
+  sign: async (vaultId: string, params: {
+    passphrase: string;
+    certificate: string;
+    privateKey: string;
+    reason?: string;
+    location?: string;
+    name?: string;
+    contactInfo?: string;
+  }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/pdf-signing/sign/${vaultId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+  },
+
+  /**
+   * Download a decrypted PDF from a vault
+   */
+  download: async (vaultId: string, passphrase: string) => {
+    const token = getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/api/pdf-signing/download/${vaultId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+      body: JSON.stringify({ passphrase }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || 'Failed to download PDF');
+    }
+
+    // Return the blob for download
+    return response.blob();
+  },
+
+  /**
+   * Share a PDF vault for signing
+   */
+  share: async (vaultId: string, connectionId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/pdf-signing/share/${vaultId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connectionId }),
+    });
+  },
+
+  /**
+   * Return a signed PDF to the owner
+   */
+  returnSigned: async (vaultId: string, ownerConnectionId: string, passphrase: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/pdf-signing/return/${vaultId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ownerConnectionId, passphrase }),
+    });
+  },
+
+  /**
+   * Verify a PDF signature
+   */
+  verify: async (vaultId: string, passphrase: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/pdf-signing/verify/${vaultId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase }),
+    });
+  },
+
+  /**
+   * Get PDF signing workflow status
+   */
+  getStatus: async () => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/pdf-signing/status`);
+  },
+};
+
+/**
  * Group Messaging API functions
  */
 export const groupMessagingApi = {

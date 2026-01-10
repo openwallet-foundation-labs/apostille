@@ -9,6 +9,15 @@ export type UserSchema = {
     created_at: Date;
 }
 
+export type PasswordResetTokenSchema = {
+    id: string;
+    user_id: string;
+    token: string;
+    expires_at: Date;
+    used: boolean;
+    created_at: Date;
+}
+
 export type CardTemplateSchema = {
     id: string;
     tenant_id: string;
@@ -65,13 +74,46 @@ export async function userTable() {
         //     `)
 
         //     console.log(result)
-        
+
         console.log("✅ User table with UUID created or already exists.")
     } catch (error: any) {
         console.log(error)
         console.error("❌ Error creating user table:", error.message)
     }finally{
         // console.log(38,client)
+        client.release()
+    }
+}
+
+export async function passwordResetTokensTable() {
+    const client = await db.connect()
+    try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id UUID NOT NULL REFERENCES users_credo(id) ON DELETE CASCADE,
+                token VARCHAR(255) UNIQUE NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `)
+
+        // Create indexes for efficient queries
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_password_reset_token
+            ON password_reset_tokens(token)
+        `)
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_password_reset_user
+            ON password_reset_tokens(user_id)
+        `)
+
+        console.log("✅ Password reset tokens table created or already exists.")
+    } catch (error: any) {
+        console.log(error)
+        console.error("❌ Error creating password reset tokens table:", error.message)
+    } finally {
         client.release()
     }
 }

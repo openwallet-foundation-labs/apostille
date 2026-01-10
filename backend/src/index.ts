@@ -5,7 +5,7 @@ import cors from 'cors';
 import type { CorsOptions } from 'cors';
 import dotenv from 'dotenv';
 import { initializeAgentSystem } from './services/agentService';
-import { userTable, initializeCredentialDesignerTables, initializeOid4vcTables } from './db/schema';
+import { userTable, passwordResetTokensTable, initializeCredentialDesignerTables, initializeOid4vcTables } from './db/schema';
 import agentRoutes from './routes/agentRoutes';
 import connectionRoutes from './routes/connectionRoutes';
 import credentialRoutes from './routes/credentialRoutes';
@@ -20,6 +20,8 @@ import cookieParser from 'cookie-parser';
 import demoRoutes from './routes/demoRoutes';
 import workflowRoutes from './routes/workflowRoutes';
 import signingRoutes from './routes/signingRoutes';
+import vaultRoutes from './routes/vaultRoutes';
+import pdfSigningRoutes from './routes/pdfSigningRoutes';
 import webrtcRoutes from './routes/webrtcRoutes';
 import groupRoutes from './routes/groupRoutes';
 import poeRoutes from './routes/poeRoutes';
@@ -186,6 +188,12 @@ app.use('/api/workflows', workflowRoutes);
 app.use('/api/signing', auth);
 app.use('/api/signing', signingRoutes);
 
+app.use('/api/vaults', auth);
+app.use('/api/vaults', vaultRoutes);
+
+app.use('/api/pdf-signing', auth);
+app.use('/api/pdf-signing', pdfSigningRoutes);
+
 app.use('/api/groups', auth);
 app.use('/api/groups', groupRoutes);
 
@@ -303,6 +311,7 @@ const startServer = async () => {
     console.log('Initializing database tables...');
     try {
       await userTable();
+      await passwordResetTokensTable();
       await initializeCredentialDesignerTables();
       await initializeOid4vcTables();
       console.log('Database tables initialized successfully');

@@ -183,12 +183,8 @@ export default function LoginPage() {
         <div className="text-center text-xs text-text-tertiary space-y-2 animate-fade-in">
           <p>Secured by advanced encryption</p>
           <div className="flex items-center justify-center space-x-4 text-xs">
-            <Link href="/privacy" className="hover:text-text-secondary transition-colors">
+            <Link href="/privacy-policy" className="hover:text-text-secondary transition-colors">
               Privacy Policy
-            </Link>
-            <span>•</span>
-            <Link href="/terms" className="hover:text-text-secondary transition-colors">
-              Terms of Service
             </Link>
           </div>
         </div>

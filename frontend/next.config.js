@@ -22,10 +22,8 @@ const nextConfig = {
         source: '/api/:path*',
         destination: `${backendUrl}/api/:path*`,
       },
-      {
-        source: '/ws',
-        destination: `${backendUrl.replace('http', 'ws')}/ws`,
-      },
+      // WebSocket connections should be handled directly by the client
+      // to the backend URL since Next.js rewrites don't support ws:// protocol
     ];
   },
   // Silence monorepo root inference warning during Docker builds

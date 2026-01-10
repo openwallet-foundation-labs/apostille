@@ -52,9 +52,12 @@ services:
   # Next.js frontend service
   # Note: NEXT_PUBLIC_API_URL is injected at container startup (not build time)
   frontend:
-    image: esse_studio/frontend:latest
+    image: essi_studio/frontend:latest
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.workspaces
     ports:
-      - "3000:3000"
+      - "30000:3000"
     depends_on:
       - backend
     environment:

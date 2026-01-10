@@ -24,8 +24,6 @@ if (!API_BASE_URL) {
   );
 }
 
-console.log('API_BASE_URL in AuthContext (from runtime config):', API_BASE_URL);
-
 /**
  * Auth state interface
  */
@@ -87,7 +85,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const refreshAccessToken = useCallback(
     async (signal?: AbortSignal): Promise<boolean> => {
       try {
-        console.log('[Auth] Attempting to refresh token...');
         const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
           method: 'POST',
           credentials: 'include', // Sends httpOnly cookie automatically
@@ -97,11 +94,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           signal,
         });
 
-        console.log('[Auth] Refresh response status:', response.status);
-
         if (response.ok) {
           const data = await response.json();
-          console.log('[Auth] Refresh successful, got token');
           setAccessToken(data.accessToken || data.token);
           setTenantId(data.tenantId);
           setEmail(data.email);
@@ -109,7 +103,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
 
         // Token invalid or expired - clear state
-        console.log('[Auth] Refresh failed - no valid refresh token');
         setAccessToken(null);
         setTenantId(null);
         setEmail(null);
@@ -243,7 +236,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       startTokenRefresh();
 
       toast.success('Login successful');
-      router.push('/');
+      router.push('/dashboard');
     } catch (error) {
       console.error('Login failed:', error);
       setAccessToken(null);
@@ -264,7 +257,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   ): Promise<string> => {
     setIsLoading(true);
     try {
-      console.log(`Registering tenant with label: ${data.label}`);
       const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         credentials: 'include', // Receive httpOnly cookie
@@ -275,14 +267,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
 
       const responseText = await response.text();
-      console.log('Registration response:', responseText);
 
       let responseData;
       try {
         responseData = JSON.parse(responseText);
       } catch (e) {
-        console.error('Failed to parse response as JSON:', e);
-        throw new Error(`Registration failed: Invalid response format - ${responseText}`);
+        throw new Error(`Registration failed: Invalid response format`);
       }
 
       if (!response.ok || !responseData.success) {
@@ -296,8 +286,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       const newTenantId = responseData.tenantId;
 
-      console.log(`Registration successful. Tenant ID: ${newTenantId}`);
-      toast.success(`Registration successful. Tenant ID: ${newTenantId}`);
+      toast.success('Registration successful!');
 
       if (!newTenantId) {
         throw new Error('Registration completed but no tenant ID was returned from the server');
@@ -312,7 +301,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // Start periodic token refresh
         startTokenRefresh();
 
-        router.push('/');
+        router.push('/dashboard');
       }
 
       return newTenantId;

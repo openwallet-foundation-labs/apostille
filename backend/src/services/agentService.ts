@@ -25,12 +25,14 @@ import {
 import { WorkflowModule, WorkflowCommandRepository, WorkflowInstanceRepository, WorkflowTemplateRepository, WorkflowService, CommandQueueService, PersistentCommandQueue } from '@ajna-inc/workflow/build'
 import { WebRTCModule } from '@ajna-inc/webrtc'
 import { SigningModule } from '@ajna-inc/signing'
+import { VaultsModule } from '@ajna-inc/vaults'
 import { GroupMessagingModule } from '@ajna-inc/group-messaging'
 import { PoeModule } from '@ajna-inc/poe'
 import { OpenBadgesModule } from '@ajna-inc/openbadges'
 import { OpenId4VcIssuerModule, OpenId4VcVerifierModule } from '@credo-ts/openid4vc'
 import { getMockPoePrograms } from '../poe/MockPoeProgram'
 import { CacheStore } from './redis/cacheStore'
+import { initializeVaultStorage } from './storageService'
 
 dotenv.config();
 
@@ -398,6 +400,11 @@ async function initializeAgent(walletId: string, walletKey: string, multiWalletD
 
                 signing: new SigningModule(),
 
+                vaults: new VaultsModule({
+                    operatorMode: true,  // Can store vaults for other agents
+                    inlineThreshold: 5 * 1024 * 1024,  // 5MB - files larger use S3
+                }),
+
                 groupMessaging: new GroupMessagingModule(),
                 webrtc: new WebRTCModule(),
                 poe: new PoeModule({
@@ -455,6 +462,9 @@ async function initializeAgent(walletId: string, walletKey: string, multiWalletD
         await agent.initialize();
         console.log(`Agent initialized successfully for wallet: ${walletId}`);
         console.log('Mock POE programs registered via module config');
+
+        // Initialize vault S3 storage if configured
+        await initializeVaultStorage(agent);
 
         mainAgent = agent;
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { useAuth } from '../context/AuthContext'; 
+import { useAuth } from '../context/AuthContext';
 import { apiPost, DashboardStats } from '../utils/api';
 import CreateInvitation from '../components/CreateInvitation';
 import Link from 'next/link';
@@ -57,21 +57,21 @@ export default function DashboardPage() {
     {
       name: 'Create Connection',
       description: 'Establish a new secure connection',
-      href: '/connections',
+      href: '/dashboard/connections',
       icon: <PlusIcon className="w-6 h-6" />,
       color: 'primary'
     },
     {
       name: 'View Credentials',
       description: 'Manage your digital credentials',
-      href: '/credentials',
+      href: '/dashboard/credentials',
       icon: <CredentialsIcon className="w-6 h-6" />,
       color: 'success'
     },
     {
       name: 'Request Proof',
       description: 'Verify credentials securely',
-      href: '/proofs',
+      href: '/dashboard/proofs',
       icon: <SecurityIcon className="w-6 h-6" />,
       color: 'warning'
     },
@@ -82,7 +82,7 @@ export default function DashboardPage() {
       name: 'Active Connections',
       value: stats?.connections?.total || 0,
       subtitle: stats?.connections?.active ? `${stats.connections.active} active` : undefined,
-      href: '/connections',
+      href: '/dashboard/connections',
       icon: <ConnectionsIcon className="w-8 h-8" />,
       color: 'primary'
     },
@@ -90,7 +90,7 @@ export default function DashboardPage() {
       name: 'Credentials',
       value: stats?.credentials?.total || 0,
       subtitle: stats?.credentials?.issued ? `${stats.credentials.issued} issued` : undefined,
-      href: '/credentials',
+      href: '/dashboard/credentials',
       icon: <CredentialsIcon className="w-8 h-8" />,
       color: 'success'
     },
@@ -98,7 +98,7 @@ export default function DashboardPage() {
       name: 'Proof Requests',
       value: stats?.invitations?.pending || 0,
       subtitle: 'pending verifications',
-      href: '/proofs',
+      href: '/dashboard/proofs',
       icon: <ProofsIcon className="w-8 h-8" />,
       color: 'warning'
     },
@@ -106,7 +106,7 @@ export default function DashboardPage() {
       name: 'DIDs',
       value: 0,
       subtitle: 'View DID records',
-      href: '/dids',
+      href: '/dashboard/dids',
       icon: <DIDsIcon className="w-8 h-8" />,
       color: 'gray'
     },
@@ -147,7 +147,7 @@ export default function DashboardPage() {
               <PlusIcon className="w-5 h-5 mr-2" />
               Create Invitation
             </button>
-            <Link href="/connections" className="btn btn-secondary">
+            <Link href="/dashboard/connections" className="btn btn-secondary">
               View All Connections
             </Link>
           </div>

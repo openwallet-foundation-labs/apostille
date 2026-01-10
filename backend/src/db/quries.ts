@@ -1,6 +1,7 @@
 
 import {db} from './driver'
-import { UserSchema, CardTemplateSchema, CardAssetSchema } from "./schema"
+import { UserSchema, CardTemplateSchema, CardAssetSchema, PasswordResetTokenSchema } from "./schema"
+import crypto from 'crypto'
 
 export async function createUser({
     email,
@@ -379,6 +380,109 @@ export async function deleteCardAsset(id: string, tenant_id: string): Promise<bo
         return result.rowCount !== null && result.rowCount > 0
     } catch (error: any) {
         console.error("❌ Error deleting card asset:", error.message)
+        throw new Error(error.message)
+    } finally {
+        client.release()
+    }
+}
+
+// ============================================
+// Password Reset Token Operations
+// ============================================
+
+export async function createPasswordResetToken(userId: string): Promise<{ token: string; expiresAt: Date }> {
+    const client = await db.connect()
+    try {
+        // Generate a secure random token
+        const token = crypto.randomBytes(32).toString('hex')
+
+        // Token expires in 1 hour
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
+
+        // Invalidate any existing unused tokens for this user
+        await client.query(
+            `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
+            [userId]
+        )
+
+        // Create new token
+        await client.query(
+            `INSERT INTO password_reset_tokens (user_id, token, expires_at)
+             VALUES ($1, $2, $3)`,
+            [userId, token, expiresAt]
+        )
+
+        console.log("✅ Password reset token created successfully.")
+        return { token, expiresAt }
+    } catch (error: any) {
+        console.error("❌ Error creating password reset token:", error.message)
+        throw new Error(error.message)
+    } finally {
+        client.release()
+    }
+}
+
+export async function getPasswordResetToken(token: string): Promise<PasswordResetTokenSchema | null> {
+    const client = await db.connect()
+    try {
+        const result = await client.query(
+            `SELECT * FROM password_reset_tokens
+             WHERE token = $1 AND used = FALSE AND expires_at > NOW()`,
+            [token]
+        )
+        return result.rows[0] || null
+    } catch (error: any) {
+        console.error("❌ Error fetching password reset token:", error.message)
+        throw new Error(error.message)
+    } finally {
+        client.release()
+    }
+}
+
+export async function markPasswordResetTokenUsed(token: string): Promise<boolean> {
+    const client = await db.connect()
+    try {
+        const result = await client.query(
+            `UPDATE password_reset_tokens SET used = TRUE WHERE token = $1 RETURNING id`,
+            [token]
+        )
+        console.log("✅ Password reset token marked as used.")
+        return result.rowCount !== null && result.rowCount > 0
+    } catch (error: any) {
+        console.error("❌ Error marking password reset token as used:", error.message)
+        throw new Error(error.message)
+    } finally {
+        client.release()
+    }
+}
+
+export async function getUserById(userId: string): Promise<UserSchema | null> {
+    const client = await db.connect()
+    try {
+        const result = await client.query(
+            `SELECT id, email, password, tenant_id, created_at FROM users_credo WHERE id = $1`,
+            [userId]
+        )
+        return result.rows[0] || null
+    } catch (error: any) {
+        console.error("❌ Error fetching user by id:", error.message)
+        throw new Error(error.message)
+    } finally {
+        client.release()
+    }
+}
+
+export async function updateUserPassword(userId: string, hashedPassword: string): Promise<boolean> {
+    const client = await db.connect()
+    try {
+        const result = await client.query(
+            `UPDATE users_credo SET password = $1 WHERE id = $2 RETURNING id`,
+            [hashedPassword, userId]
+        )
+        console.log("✅ User password updated successfully.")
+        return result.rowCount !== null && result.rowCount > 0
+    } catch (error: any) {
+        console.error("❌ Error updating user password:", error.message)
         throw new Error(error.message)
     } finally {
         client.release()
