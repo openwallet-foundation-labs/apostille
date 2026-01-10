@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import { Agent, ConsoleLogger, LogLevel, DidsModule, HttpOutboundTransport, WsOutboundTransport, ConnectionsModule, CredentialsModule, AutoAcceptCredential, V2CredentialProtocol, ProofsModule, AutoAcceptProof, V2ProofProtocol, ConnectionEventTypes, DidExchangeState, InjectionSymbols } from '@credo-ts/core';
+import { Agent, ConsoleLogger, LogLevel, DidsModule, HttpOutboundTransport, WsOutboundTransport, ConnectionsModule, CredentialsModule, AutoAcceptCredential, V2CredentialProtocol, ProofsModule, AutoAcceptProof, V2ProofProtocol, ConnectionEventTypes, DidExchangeState, InjectionSymbols, BasicMessageEventTypes } from '@credo-ts/core';
+import type { BasicMessageStateChangedEvent } from '@credo-ts/core';
 import { agentDependencies, HttpInboundTransport, WsInboundTransport } from '@credo-ts/node';
 import { AskarModule } from '@credo-ts/askar';
 import { ariesAskar } from '@hyperledger/aries-askar-nodejs';
@@ -614,7 +615,89 @@ const setupConnectionListener = async (agent: Agent) => {
     })
 }
 
+// KEM key exchange tag (must match connectionRoutes.ts)
+const KEM_KEYPAIR_TAG = 'kem-keypair-connection';
 
+/**
+ * Set up KEM key exchange message handler for a tenant agent
+ * Listens for incoming basic messages that contain KEM key exchange data
+ */
+const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
+    agent.events.on<BasicMessageStateChangedEvent>(BasicMessageEventTypes.BasicMessageStateChanged, async ({ payload }) => {
+        try {
+            const { basicMessageRecord } = payload;
+            const { content, connectionId, role } = basicMessageRecord;
+
+            // Only process received messages
+            if (role !== 'receiver') return;
+
+            // Try to parse as KEM key exchange message
+            let kemData: { type: string; kid: string; publicKey: string; algorithm?: string } | null = null;
+            try {
+                kemData = JSON.parse(content);
+            } catch {
+                // Not JSON, not a KEM message
+                return;
+            }
+
+            if (kemData?.type !== 'kem-key-exchange' || !kemData.kid || !kemData.publicKey) {
+                return; // Not a KEM key exchange message
+            }
+
+            console.log(`[KEM] Received key exchange from connection ${connectionId}: kid=${kemData.kid}`);
+
+            // Store peer's public key in connection metadata
+            const publicKeyBytes = new Uint8Array(Buffer.from(kemData.publicKey, 'base64url'));
+            await agent.modules.vaults.storePeerKemKey(connectionId, {
+                kid: kemData.kid,
+                publicKey: publicKeyBytes,
+            });
+            console.log(`[KEM] Stored peer key for connection ${connectionId}`);
+
+            // Auto-respond with our own key if we don't have one yet
+            const existingKeypairs = await agent.genericRecords.findAllByQuery({
+                type: KEM_KEYPAIR_TAG,
+                connectionId: connectionId,
+            });
+
+            if (existingKeypairs.length === 0) {
+                // Generate our keypair and send back
+                const keypair = agent.modules.vaults.generateKemKeypair();
+                console.log(`[KEM] Auto-generating response keypair for connection ${connectionId}: kid=${keypair.kid}`);
+
+                // Store our keypair
+                await agent.genericRecords.save({
+                    content: {
+                        kid: keypair.kid,
+                        publicKey: Buffer.from(keypair.publicKey).toString('base64url'),
+                        secretKey: Buffer.from(keypair.secretKey).toString('base64url'),
+                        connectionId: connectionId,
+                        createdAt: new Date().toISOString(),
+                    },
+                    tags: {
+                        type: KEM_KEYPAIR_TAG,
+                        connectionId: connectionId,
+                        kid: keypair.kid,
+                    },
+                });
+
+                // Send our public key back
+                const responseMessage = JSON.stringify({
+                    type: 'kem-key-exchange',
+                    kid: keypair.kid,
+                    publicKey: Buffer.from(keypair.publicKey).toString('base64url'),
+                    algorithm: 'ML-KEM-768',
+                    timestamp: new Date().toISOString(),
+                });
+
+                await agent.basicMessages.sendMessage(connectionId, responseMessage);
+                console.log(`[KEM] Sent response key to connection ${connectionId}`);
+            }
+        } catch (error) {
+            console.error('[KEM] Error processing key exchange message:', error);
+        }
+    });
+};
 
 // Helper function to implement retries with exponential backoff
 async function withRetry<T>(fn: () => Promise<T>, retries = MAX_RETRIES, delay = RETRY_DELAY): Promise<T> {
@@ -663,6 +746,9 @@ export async function getAgent({
             tenantAgentCache[tenantId] = tenantAgent;
             console.log(`Cached tenant agent for tenant: ${tenantId}`);
 
+            // Set up KEM key exchange message handler
+            setupKemKeyExchangeHandler(tenantAgent);
+
             // Track activity in Redis
             await tenantActivityCache.set(tenantId, { lastAccess: new Date().toISOString(), podId: POD_ID });
 
@@ -686,6 +772,9 @@ export async function getAgent({
         tenantAgentCache[tenantId] = tenantAgent;
         console.log(`Cached tenant agent for tenant: ${tenantId}`);
 
+        // Set up KEM key exchange message handler
+        setupKemKeyExchangeHandler(tenantAgent);
+
         await ensureTenantWorkflowQueue(tenantAgent, tenantId);
 
         return tenantAgent;
@@ -701,6 +790,9 @@ export async function getAgent({
 
             tenantAgentCache[tenantId] = tenantAgent;
             console.log(`Cached tenant agent for tenant: ${tenantId}`);
+
+            // Set up KEM key exchange message handler
+            setupKemKeyExchangeHandler(tenantAgent);
 
             await ensureTenantWorkflowQueue(tenantAgent, tenantId);
 

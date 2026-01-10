@@ -22,6 +22,12 @@ interface Connection {
   autoAcceptConnection?: boolean;
 }
 
+interface KemStatus {
+  hasLocalKey: boolean;
+  hasPeerKey: boolean;
+  ready: boolean;
+}
+
 
 interface Invitation {
   id: string;
@@ -101,6 +107,10 @@ export default function ConnectionsPage() {
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const { notifications } = useNotifications();
   const processedEventIdsRef = useRef<Set<string>>(new Set());
+
+  // KEM key exchange state
+  const [kemStatuses, setKemStatuses] = useState<Record<string, KemStatus>>({});
+  const [exchangingKeys, setExchangingKeys] = useState<Record<string, boolean>>({});
 
 
 
@@ -213,6 +223,62 @@ export default function ConnectionsPage() {
       if (timeout) clearTimeout(timeout);
     };
   }, [tenantId, token, notifications]);
+
+  // Fetch KEM statuses for completed connections
+  useEffect(() => {
+    async function fetchKemStatuses() {
+      const completedConnections = connections.filter(
+        c => c.state === 'completed' || c.state === 'complete'
+      );
+
+      for (const conn of completedConnections) {
+        // Skip if we already have status for this connection
+        if (kemStatuses[conn.id]) continue;
+
+        try {
+          const response = await connectionApi.getKemStatus(conn.id);
+          if (response.success && response.status) {
+            setKemStatuses(prev => ({
+              ...prev,
+              [conn.id]: response.status,
+            }));
+          }
+        } catch (err) {
+          console.error(`Failed to get KEM status for ${conn.id}:`, err);
+        }
+      }
+    }
+
+    if (connections.length > 0) {
+      fetchKemStatuses();
+    }
+  }, [connections]);
+
+  // Handle key exchange
+  const handleExchangeKeys = async (connectionId: string) => {
+    setExchangingKeys(prev => ({ ...prev, [connectionId]: true }));
+    setError(null);
+
+    try {
+      const response = await connectionApi.exchangeKeys(connectionId);
+
+      if (response.success) {
+        // Update KEM status
+        setKemStatuses(prev => ({
+          ...prev,
+          [connectionId]: response.status,
+        }));
+        setAcceptSuccess('Key exchange initiated! Waiting for peer to exchange keys.');
+      } else {
+        throw new Error(response.message || 'Failed to exchange keys');
+      }
+    } catch (err: any) {
+      console.error('Key exchange failed:', err);
+      setError(err.message || 'Failed to exchange keys');
+    } finally {
+      setExchangingKeys(prev => ({ ...prev, [connectionId]: false }));
+    }
+  };
 
 
   const handleCreateInvitation = async () => {
@@ -812,6 +878,9 @@ export default function ConnectionsPage() {
                     State
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
+                    Encryption
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
                     Role
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
@@ -840,11 +909,51 @@ export default function ConnectionsPage() {
                         {connection.state}
                       </span>
                     </td>
+                    <td className="px-6 py-4">
+                      {(connection.state === 'completed' || connection.state === 'complete') ? (
+                        (() => {
+                          const status = kemStatuses[connection.id];
+                          if (!status) {
+                            return <span className="text-text-tertiary text-sm">Loading...</span>;
+                          }
+                          if (status.ready) {
+                            return (
+                              <span className="inline-flex items-center text-success-600 text-sm font-medium">
+                                <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                </svg>
+                                Ready
+                              </span>
+                            );
+                          }
+                          if (status.hasLocalKey && !status.hasPeerKey) {
+                            return (
+                              <span className="inline-flex items-center text-warning-600 text-sm">
+                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Waiting...
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="inline-flex items-center text-text-tertiary text-sm">
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                              </svg>
+                              Not Set
+                            </span>
+                          );
+                        })()
+                      ) : (
+                        <span className="text-text-tertiary text-sm">-</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-sm text-text-secondary">
                       {connection.role}
                     </td>
                     <td className="px-6 py-4 text-sm font-medium">
-                      <div className="flex space-x-4">
+                      <div className="flex space-x-3">
                         {connection.state === 'await-response' && connection.url && (
                           <button
                             onClick={() => showQrCodeForConnection(connection)}
@@ -852,6 +961,32 @@ export default function ConnectionsPage() {
                           >
                             Show QR
                           </button>
+                        )}
+                        {(connection.state === 'completed' || connection.state === 'complete') && (
+                          <>
+                            {(!kemStatuses[connection.id]?.ready) && (
+                              <button
+                                onClick={() => handleExchangeKeys(connection.id)}
+                                disabled={exchangingKeys[connection.id] || kemStatuses[connection.id]?.hasLocalKey}
+                                className={`text-sm px-2 py-1 rounded transition-colors duration-200 ${
+                                  exchangingKeys[connection.id] || kemStatuses[connection.id]?.hasLocalKey
+                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                    : 'bg-primary-100 text-primary-700 hover:bg-primary-200'
+                                }`}
+                              >
+                                {exchangingKeys[connection.id] ? (
+                                  <span className="flex items-center">
+                                    <span className="spinner h-3 w-3 mr-1"></span>
+                                    Exchanging...
+                                  </span>
+                                ) : kemStatuses[connection.id]?.hasLocalKey ? (
+                                  'Awaiting Peer'
+                                ) : (
+                                  'Exchange Keys'
+                                )}
+                              </button>
+                            )}
+                          </>
                         )}
                         <button
                           onClick={() => openMessageModal(connection)}

@@ -195,7 +195,26 @@ export const connectionApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ connectionId, message })
     });
-  }
+  },
+
+  /**
+   * Get KEM key exchange status for a connection
+   * Returns whether local and peer keys are ready for encryption
+   */
+  getKemStatus: async (connectionId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/connections/${connectionId}/kem-status`);
+  },
+
+  /**
+   * Initiate KEM key exchange with a connection
+   * Generates local keypair and sends public key to peer
+   */
+  exchangeKeys: async (connectionId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/connections/${connectionId}/exchange-keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+  },
 };
 
 /**
@@ -850,20 +869,22 @@ export const vaultApi = {
 /**
  * PDF Signing API functions
  * For PDF document signing workflows with vaults
+ * Uses ML-KEM-768 post-quantum encryption (no passphrase needed)
  */
 export const pdfSigningApi = {
   /**
-   * Upload a PDF and create a vault
+   * Upload a PDF and create an encrypted vault
+   * Requires a connection with KEM keys exchanged
+   * @param file - PDF file to upload
+   * @param recipientConnectionId - Connection ID of recipient (must have KEM keys)
+   * @param description - Optional description
    */
-  upload: async (file: File, passphrase: string, description?: string, signerConnectionId?: string) => {
+  upload: async (file: File, recipientConnectionId: string, description?: string) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('passphrase', passphrase);
+    formData.append('recipientConnectionId', recipientConnectionId);
     if (description) {
       formData.append('description', description);
-    }
-    if (signerConnectionId) {
-      formData.append('signerConnectionId', signerConnectionId);
     }
 
     const token = getAccessToken();
@@ -876,7 +897,7 @@ export const pdfSigningApi = {
 
     const data = await response.json();
     if (!response.ok) {
-      throw new Error(data.message || 'Failed to upload PDF');
+      throw new Error(data.message || data.error || 'Failed to upload PDF');
     }
     return data;
   },
