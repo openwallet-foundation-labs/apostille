@@ -833,10 +833,12 @@ export async function getAgent({
             // Set up KEM key exchange message handler
             setupKemKeyExchangeHandler(tenantAgent);
 
-            // Process any existing unprocessed KEM messages (async, don't block)
-            processExistingKemMessages(tenantAgent).catch(err =>
-                console.error('[KEM] Failed to process existing messages:', err)
-            );
+            // Process any existing unprocessed KEM messages (must complete before returning)
+            try {
+                await processExistingKemMessages(tenantAgent);
+            } catch (err) {
+                console.error('[KEM] Failed to process existing messages:', err);
+            }
 
             // Track activity in Redis
             await tenantActivityCache.set(tenantId, { lastAccess: new Date().toISOString(), podId: POD_ID });
@@ -864,10 +866,12 @@ export async function getAgent({
         // Set up KEM key exchange message handler
         setupKemKeyExchangeHandler(tenantAgent);
 
-        // Process any existing unprocessed KEM messages (async, don't block)
-        processExistingKemMessages(tenantAgent).catch(err =>
-            console.error('[KEM] Failed to process existing messages:', err)
-        );
+        // Process any existing unprocessed KEM messages (must complete before returning)
+        try {
+            await processExistingKemMessages(tenantAgent);
+        } catch (err) {
+            console.error('[KEM] Failed to process existing messages:', err);
+        }
 
         await ensureTenantWorkflowQueue(tenantAgent, tenantId);
 
@@ -888,10 +892,12 @@ export async function getAgent({
             // Set up KEM key exchange message handler
             setupKemKeyExchangeHandler(tenantAgent);
 
-            // Process any existing unprocessed KEM messages (async, don't block)
-            processExistingKemMessages(tenantAgent).catch(err =>
-                console.error('[KEM] Failed to process existing messages:', err)
-            );
+            // Process any existing unprocessed KEM messages (must complete before returning)
+            try {
+                await processExistingKemMessages(tenantAgent);
+            } catch (err) {
+                console.error('[KEM] Failed to process existing messages:', err);
+            }
 
             await ensureTenantWorkflowQueue(tenantAgent, tenantId);
 

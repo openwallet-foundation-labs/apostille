@@ -231,6 +231,7 @@ export default function ConnectionsPage() {
   }, [tenantId, token, notifications]);
 
   // Fetch KEM statuses for completed connections
+  // Re-fetch when notifications arrive (e.g., when a KEM message is received)
   useEffect(() => {
     async function fetchKemStatuses() {
       const completedConnections = connections.filter(
@@ -238,16 +239,24 @@ export default function ConnectionsPage() {
       );
 
       for (const conn of completedConnections) {
-        // Skip if we already have status for this connection
-        if (kemStatuses[conn.id]) continue;
-
         try {
           const response = await connectionApi.getKemStatus(conn.id);
           if (response.success && response.status) {
-            setKemStatuses(prev => ({
-              ...prev,
-              [conn.id]: response.status,
-            }));
+            setKemStatuses(prev => {
+              // Only update if status changed to avoid unnecessary re-renders
+              const existing = prev[conn.id];
+              if (existing &&
+                  existing.hasLocalKey === response.status.hasLocalKey &&
+                  existing.hasPeerKey === response.status.hasPeerKey &&
+                  existing.hasPendingRequest === response.status.hasPendingRequest &&
+                  existing.ready === response.status.ready) {
+                return prev;
+              }
+              return {
+                ...prev,
+                [conn.id]: response.status,
+              };
+            });
           }
         } catch (err) {
           console.error(`Failed to get KEM status for ${conn.id}:`, err);
@@ -258,7 +267,7 @@ export default function ConnectionsPage() {
     if (connections.length > 0) {
       fetchKemStatuses();
     }
-  }, [connections]);
+  }, [connections, notifications]);
 
   // Handle key exchange (initiate)
   const handleExchangeKeys = async (connectionId: string) => {
