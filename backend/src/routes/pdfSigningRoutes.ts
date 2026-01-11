@@ -2,7 +2,64 @@ import { Router, Request, Response } from 'express';
 import { getAgent } from '../services/agentService';
 import { PdfUtils, SignaturePlaceholderOptions } from '@ajna-inc/signing';
 import multer from 'multer';
-import crypto from 'crypto';
+
+// KEM keypair tag (must match connectionRoutes.ts and agentService.ts)
+const KEM_KEYPAIR_TAG = 'kem-keypair-connection';
+
+/**
+ * Helper to get KEM secret key for a connection
+ * Returns the secretKey and kid needed to decrypt signing vaults
+ */
+async function getKemSecretKey(agent: any, connectionId: string): Promise<{ secretKey: Uint8Array; kid: string } | null> {
+  const keypairs = await agent.genericRecords.findAllByQuery({
+    type: KEM_KEYPAIR_TAG,
+    connectionId: connectionId,
+  });
+
+  if (keypairs.length === 0) {
+    return null;
+  }
+
+  const keypair = keypairs[0];
+  return {
+    kid: keypair.content.kid as string,
+    secretKey: new Uint8Array(Buffer.from(keypair.content.secretKey as string, 'base64url')),
+  };
+}
+
+/**
+ * Helper to find the connection ID for a vault based on its metadata
+ * For owner: uses signerConnectionId
+ * For signer: looks up who sent the vault
+ */
+async function findVaultConnectionId(agent: any, vaultInfo: any): Promise<string | null> {
+  const meta = vaultInfo.header?.metadata;
+
+  // If we're the owner, the signerConnectionId is our connection to the signer
+  if (meta?.role === 'owner' && meta?.signerConnectionId) {
+    return meta.signerConnectionId;
+  }
+
+  // If we're the signer (received vault), we need to find our connection
+  // The signerConnectionId in metadata is from the sender's perspective, not ours
+  // We need to check all our connections that have KEM keys
+  const connections = await agent.connections.getAll();
+  for (const conn of connections) {
+    const hasKemKey = await agent.modules.vaults.hasPeerKemKey(conn.id);
+    if (hasKemKey) {
+      // Check if we have a local keypair for this connection
+      const localKeypairs = await agent.genericRecords.findAllByQuery({
+        type: KEM_KEYPAIR_TAG,
+        connectionId: conn.id,
+      });
+      if (localKeypairs.length > 0) {
+        return conn.id;
+      }
+    }
+  }
+
+  return null;
+}
 
 const router = Router();
 
@@ -123,17 +180,15 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 /**
  * Sign a PDF stored in a vault
  * POST /api/pdf-signing/sign/:vaultId
- * Body: { passphrase, certificate, privateKey, reason?, location?, name? }
+ * Body: { certificate, privateKey, reason?, location?, name? }
+ *
+ * Uses KEM keys for decryption - 
  */
 router.post('/sign/:vaultId', async (req: Request, res: Response) => {
   try {
     const { tenantId } = (req as any).user;
     const { vaultId } = req.params;
-    const { passphrase, certificate, privateKey, reason, location, name, contactInfo } = req.body;
-
-    if (!passphrase) {
-      return res.status(400).json({ error: 'Passphrase is required' });
-    }
+    const { certificate, privateKey, reason, location, name, contactInfo } = req.body;
 
     if (!certificate || !privateKey) {
       return res.status(400).json({ error: 'Certificate and private key are required for signing' });
@@ -141,8 +196,43 @@ router.post('/sign/:vaultId', async (req: Request, res: Response) => {
 
     const agent = await getAgent({ tenantId });
 
-    // Decrypt the vault to get the PDF
-    const pdfBytes = await agent.modules.vaults.open(vaultId, { passphrase });
+    // Get vault info to find the connection
+    const vaultInfo = await agent.modules.vaults.getInfo(vaultId);
+    if (!vaultInfo) {
+      return res.status(404).json({ error: 'Vault not found' });
+    }
+
+    // Find the connection ID for this vault
+    const connectionId = await findVaultConnectionId(agent, vaultInfo);
+    if (!connectionId) {
+      return res.status(400).json({
+        error: 'No KEM keys found',
+        message: 'Cannot decrypt vault - no encryption keys available for this connection',
+      });
+    }
+
+    // Get our KEM secret key for this connection
+    const kemKey = await getKemSecretKey(agent, connectionId);
+    if (!kemKey) {
+      return res.status(400).json({
+        error: 'KEM key not found',
+        message: 'No encryption key found for this connection. Please exchange keys first.',
+      });
+    }
+
+    // Get the vault record
+    const vaultRecord = await agent.modules.vaults.getRecord(vaultId);
+    if (!vaultRecord) {
+      return res.status(404).json({ error: 'Vault record not found' });
+    }
+
+    // Decrypt using KEM keys (not passphrase)
+    console.log(`[PDF-Signing] Opening signing vault ${vaultId} with KEM key ${kemKey.kid}`);
+    const { document: pdfBytes } = await agent.modules.vaults.openSigningVault(
+      vaultRecord,
+      kemKey.secretKey,
+      kemKey.kid
+    );
 
     // Prepare signature options
     const placeholderOptions: SignaturePlaceholderOptions = {
@@ -159,13 +249,14 @@ router.post('/sign/:vaultId', async (req: Request, res: Response) => {
       placeholderOptions
     );
 
-    // Get the original vault info for metadata (stored in header.metadata)
-    const vaultInfo = await agent.modules.vaults.getInfo(vaultId);
     const originalMetadata = vaultInfo.header?.metadata || {};
 
-    // Create a new vault with the signed PDF
-    const signedVault = await agent.modules.vaults.create(signedPdf, {
-      passphrase,
+    // Create a new signing vault with the signed PDF (encrypted to owner)
+    // For now, store locally - the signer can use "Return to Owner" to send back
+    const signedVault = await agent.modules.vaults.createSigningVault({
+      document: signedPdf,
+      signerConnectionId: connectionId, // Will encrypt to owner's key
+      documentType: 'pdf',
       metadata: {
         ...originalMetadata,
         originalVaultId: vaultId,
@@ -173,8 +264,11 @@ router.post('/sign/:vaultId', async (req: Request, res: Response) => {
         signerName: name,
         signatureReason: reason,
         isSigned: true,
+        role: 'signer', // Mark as signer's vault
       },
     });
+
+    console.log(`[PDF-Signing] Created signed vault ${signedVault.vaultId}`);
 
     res.json({
       success: true,
@@ -187,10 +281,10 @@ router.post('/sign/:vaultId', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error signing PDF:', error);
-    if (error.message?.includes('decrypt') || error.message?.includes('passphrase')) {
+    if (error.message?.includes('decrypt') || error.message?.includes('KEM') || error.message?.includes('key')) {
       return res.status(401).json({
         error: 'Decryption failed',
-        message: 'Invalid passphrase or corrupted vault',
+        message: 'Cannot decrypt vault - key mismatch or corrupted data',
       });
     }
     res.status(500).json({
@@ -203,27 +297,55 @@ router.post('/sign/:vaultId', async (req: Request, res: Response) => {
 /**
  * Download a PDF from a vault (decrypted)
  * POST /api/pdf-signing/download/:vaultId
- * Body: { passphrase }
+ *
+ * Uses KEM keys for decryption - 
  */
 router.post('/download/:vaultId', async (req: Request, res: Response) => {
   try {
     const { tenantId } = (req as any).user;
     const { vaultId } = req.params;
-    const { passphrase } = req.body;
-
-    if (!passphrase) {
-      return res.status(400).json({ error: 'Passphrase is required' });
-    }
 
     const agent = await getAgent({ tenantId });
 
-    // Get vault info for filename (stored in header.metadata)
+    // Get vault info for filename and connection
     const vaultInfo = await agent.modules.vaults.getInfo(vaultId);
+    if (!vaultInfo) {
+      return res.status(404).json({ error: 'Vault not found' });
+    }
 
-    // Decrypt the vault
-    const pdfBytes = await agent.modules.vaults.open(vaultId, { passphrase });
+    // Find the connection ID for this vault
+    const connectionId = await findVaultConnectionId(agent, vaultInfo);
+    if (!connectionId) {
+      return res.status(400).json({
+        error: 'No KEM keys found',
+        message: 'Cannot decrypt vault - no encryption keys available for this connection',
+      });
+    }
 
-    // Set headers for PDF download (metadata is in header.metadata)
+    // Get our KEM secret key for this connection
+    const kemKey = await getKemSecretKey(agent, connectionId);
+    if (!kemKey) {
+      return res.status(400).json({
+        error: 'KEM key not found',
+        message: 'No encryption key found for this connection. Please exchange keys first.',
+      });
+    }
+
+    // Get the vault record
+    const vaultRecord = await agent.modules.vaults.getRecord(vaultId);
+    if (!vaultRecord) {
+      return res.status(404).json({ error: 'Vault record not found' });
+    }
+
+    // Decrypt using KEM keys
+    console.log(`[PDF-Signing] Downloading vault ${vaultId} with KEM key ${kemKey.kid}`);
+    const { document: pdfBytes } = await agent.modules.vaults.openSigningVault(
+      vaultRecord,
+      kemKey.secretKey,
+      kemKey.kid
+    );
+
+    // Set headers for PDF download
     const filename = vaultInfo.header?.metadata?.filename || 'document.pdf';
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -233,10 +355,10 @@ router.post('/download/:vaultId', async (req: Request, res: Response) => {
     res.send(Buffer.from(pdfBytes));
   } catch (error: any) {
     console.error('Error downloading PDF:', error);
-    if (error.message?.includes('decrypt') || error.message?.includes('passphrase')) {
+    if (error.message?.includes('decrypt') || error.message?.includes('KEM') || error.message?.includes('key')) {
       return res.status(401).json({
         error: 'Decryption failed',
-        message: 'Invalid passphrase or corrupted vault',
+        message: 'Cannot decrypt vault - key mismatch or corrupted data',
       });
     }
     if (error.message?.includes('not found')) {
