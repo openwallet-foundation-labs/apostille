@@ -78,7 +78,9 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
         mimeType: file.mimetype,
         size: file.size,
         description: description || 'PDF for signing',
-        senderConnectionId: recipientConnectionId,
+        role: 'owner',  // This user owns the document
+        signerConnectionId: recipientConnectionId,  // Who should sign it
+        status: 'pending_share',  // Track workflow state
         createdAt: new Date().toISOString(),
       },
     });
@@ -262,6 +264,15 @@ router.post('/share/:vaultId', async (req: Request, res: Response) => {
     // Share the vault via DIDComm
     await agent.modules.vaults.shareSigningVault(vaultId, connectionId);
 
+    // Update the vault status to 'shared'
+    const vaultInfo = await agent.modules.vaults.getInfo(vaultId);
+    const existingMetadata = vaultInfo.header?.metadata || {};
+    await agent.modules.vaults.updateMetadata(vaultId, {
+      ...existingMetadata,
+      status: 'shared',
+      sharedAt: new Date().toISOString(),
+    });
+
     res.json({
       success: true,
       message: 'PDF vault shared for signing',
@@ -406,14 +417,27 @@ router.post('/verify/:vaultId', async (req: Request, res: Response) => {
 /**
  * Get PDF signing workflow status
  * GET /api/pdf-signing/status
+ *
+ * Returns vaults categorized by role:
+ * - Owner: pendingToShare, awaitingSignature
+ * - Signer: toSign, signedToReturn
+ * - Both: completed
+ *
+ * Role detection:
+ * - If signerConnectionId matches one of the user's connections → owner
+ * - If signerConnectionId doesn't match user's connections → signer (received vault)
  */
 router.get('/status', async (req: Request, res: Response) => {
   try {
     const { tenantId } = (req as any).user;
     const agent = await getAgent({ tenantId });
 
+    // Get all user's connections to determine role
+    const connections = await agent.connections.getAll();
+    const myConnectionIds = new Set(connections.map((c: any) => c.id));
+    console.log('[PDF-Signing] User has connections:', myConnectionIds.size);
+
     // Get all vaults that are PDFs
-    // VaultRecord stores metadata in header.metadata, not at top level
     const allVaults = await agent.modules.vaults.list();
     console.log('[PDF-Signing] Found vaults:', allVaults.length);
 
@@ -423,44 +447,96 @@ router.get('/status', async (req: Request, res: Response) => {
     });
     console.log('[PDF-Signing] PDF vaults:', pdfVaults.length);
 
-    // Categorize by status (metadata is in header.metadata)
-    const pending = pdfVaults.filter((v: any) => {
+    // Determine role for each vault based on signerConnectionId
+    // - If signerConnectionId is in my connections → I'm the owner (I created it)
+    // - If signerConnectionId is NOT in my connections → I'm the signer (I received it)
+    const ownedVaults: any[] = [];
+    const receivedVaults: any[] = [];
+
+    for (const vault of pdfVaults) {
+      const meta = vault.header?.metadata;
+      const signerConnId = meta?.signerConnectionId;
+
+      // Check explicit role first (for vaults created with new metadata)
+      if (meta?.role === 'owner') {
+        ownedVaults.push(vault);
+      } else if (meta?.role === 'signer') {
+        receivedVaults.push(vault);
+      } else if (signerConnId && myConnectionIds.has(signerConnId)) {
+        // signerConnectionId matches my connection → I created this vault
+        ownedVaults.push(vault);
+      } else {
+        // signerConnectionId doesn't match → I received this vault
+        receivedVaults.push(vault);
+      }
+    }
+
+    console.log('[PDF-Signing] Owned vaults:', ownedVaults.length, 'Received vaults:', receivedVaults.length);
+
+    // Owner's view
+    const pendingToShare = ownedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
-      return !meta?.isSigned && !meta?.returnedAt;
+      return meta?.status === 'pending_share' || (!meta?.status && !meta?.sharedAt);
     });
-    const signed = pdfVaults.filter((v: any) => {
+    const awaitingSignature = ownedVaults.filter((v: any) => {
+      const meta = v.header?.metadata;
+      return (meta?.status === 'shared' || meta?.sharedAt) && !meta?.returnedAt;
+    });
+
+    // Signer's view
+    const toSign = receivedVaults.filter((v: any) => {
+      const meta = v.header?.metadata;
+      return !meta?.isSigned;
+    });
+    const signedToReturn = receivedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
       return meta?.isSigned && !meta?.returnedAt;
     });
+
+    // Completed (both roles)
     const completed = pdfVaults.filter((v: any) => {
       const meta = v.header?.metadata;
       return meta?.returnedAt;
+    });
+
+    // Helper to map vault to response format
+    const mapVault = (v: any, detectedRole?: string) => ({
+      vaultId: v.vaultId,
+      filename: v.header?.metadata?.filename,
+      description: v.header?.metadata?.description,
+      role: v.header?.metadata?.role || detectedRole,
+      status: v.header?.metadata?.status,
+      signerConnectionId: v.header?.metadata?.signerConnectionId,
+      ownerConnectionId: v.header?.metadata?.ownerConnectionId,
+      isSigned: v.header?.metadata?.isSigned,
+      signedAt: v.header?.metadata?.signedAt,
+      sharedAt: v.header?.metadata?.sharedAt,
+      returnedAt: v.header?.metadata?.returnedAt,
+      createdAt: v.header?.metadata?.createdAt || v.createdAt,
     });
 
     res.json({
       success: true,
       status: {
         total: pdfVaults.length,
-        pending: pending.length,
-        signed: signed.length,
+        // Owner stats
+        pendingToShare: pendingToShare.length,
+        awaitingSignature: awaitingSignature.length,
+        // Signer stats
+        toSign: toSign.length,
+        signedToReturn: signedToReturn.length,
+        // Completed
         completed: completed.length,
       },
       vaults: {
-        pending: pending.map((v: any) => ({
-          vaultId: v.vaultId,
-          filename: v.header?.metadata?.filename,
-          createdAt: v.createdAt,
-        })),
-        signed: signed.map((v: any) => ({
-          vaultId: v.vaultId,
-          filename: v.header?.metadata?.filename,
-          signedAt: v.header?.metadata?.signedAt,
-        })),
-        completed: completed.map((v: any) => ({
-          vaultId: v.vaultId,
-          filename: v.header?.metadata?.filename,
-          returnedAt: v.header?.metadata?.returnedAt,
-        })),
+        // Owner's view
+        pendingToShare: pendingToShare.map(v => mapVault(v, 'owner')),
+        awaitingSignature: awaitingSignature.map(v => mapVault(v, 'owner')),
+        // Signer's view
+        toSign: toSign.map(v => mapVault(v, 'signer')),
+        signedToReturn: signedToReturn.map(v => mapVault(v, 'signer')),
+        // Completed (both)
+        completed: completed.map((v: any) => mapVault(v)),
       },
     });
   } catch (error: any) {

@@ -7,9 +7,16 @@ import { toast } from 'react-toastify';
 interface PdfVault {
   vaultId: string;
   filename?: string;
-  createdAt?: string;
+  description?: string;
+  role?: 'owner' | 'signer';
+  status?: string;
+  signerConnectionId?: string;
+  ownerConnectionId?: string;
+  isSigned?: boolean;
   signedAt?: string;
+  sharedAt?: string;
   returnedAt?: string;
+  createdAt?: string;
 }
 
 interface Connection {
@@ -26,15 +33,25 @@ interface KemStatus {
 
 interface SigningStatus {
   total: number;
-  pending: number;
-  signed: number;
+  // Owner stats
+  pendingToShare: number;
+  awaitingSignature: number;
+  // Signer stats
+  toSign: number;
+  signedToReturn: number;
+  // Completed
   completed: number;
 }
 
 export default function PdfSigningPage() {
   const [status, setStatus] = useState<SigningStatus | null>(null);
-  const [pendingVaults, setPendingVaults] = useState<PdfVault[]>([]);
-  const [signedVaults, setSignedVaults] = useState<PdfVault[]>([]);
+  // Owner's vaults
+  const [pendingToShareVaults, setPendingToShareVaults] = useState<PdfVault[]>([]);
+  const [awaitingSignatureVaults, setAwaitingSignatureVaults] = useState<PdfVault[]>([]);
+  // Signer's vaults
+  const [toSignVaults, setToSignVaults] = useState<PdfVault[]>([]);
+  const [signedToReturnVaults, setSignedToReturnVaults] = useState<PdfVault[]>([]);
+  // Completed vaults
   const [completedVaults, setCompletedVaults] = useState<PdfVault[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,8 +97,13 @@ export default function PdfSigningPage() {
 
       if (statusRes.success) {
         setStatus(statusRes.status);
-        setPendingVaults(statusRes.vaults?.pending || []);
-        setSignedVaults(statusRes.vaults?.signed || []);
+        // Owner's vaults
+        setPendingToShareVaults(statusRes.vaults?.pendingToShare || []);
+        setAwaitingSignatureVaults(statusRes.vaults?.awaitingSignature || []);
+        // Signer's vaults
+        setToSignVaults(statusRes.vaults?.toSign || []);
+        setSignedToReturnVaults(statusRes.vaults?.signedToReturn || []);
+        // Completed
         setCompletedVaults(statusRes.vaults?.completed || []);
       }
 
@@ -208,6 +230,7 @@ export default function PdfSigningPage() {
         setShowShareModal(false);
         setSelectedVault(null);
         setShareConnectionId('');
+        loadData(); // Reload to update vault status
       }
     } catch (error: any) {
       console.error('Failed to share PDF:', error);
@@ -284,38 +307,53 @@ export default function PdfSigningPage() {
 
       {/* Status Cards */}
       {status && (
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div className="card p-4">
             <div className="text-2xl font-bold text-text-primary">{status.total}</div>
             <div className="text-sm text-text-secondary">Total PDFs</div>
           </div>
-          <div className="card p-4">
-            <div className="text-2xl font-bold text-warning-600">{status.pending}</div>
-            <div className="text-sm text-text-secondary">Pending</div>
+          <div className="card p-4 border-l-4 border-l-warning-500">
+            <div className="text-2xl font-bold text-warning-600">{status.pendingToShare}</div>
+            <div className="text-sm text-text-secondary">To Share</div>
+            <div className="text-xs text-text-tertiary">Owner</div>
           </div>
-          <div className="card p-4">
-            <div className="text-2xl font-bold text-primary-600">{status.signed}</div>
-            <div className="text-sm text-text-secondary">Signed</div>
+          <div className="card p-4 border-l-4 border-l-blue-500">
+            <div className="text-2xl font-bold text-blue-600">{status.awaitingSignature}</div>
+            <div className="text-sm text-text-secondary">Awaiting Signature</div>
+            <div className="text-xs text-text-tertiary">Owner</div>
           </div>
-          <div className="card p-4">
+          <div className="card p-4 border-l-4 border-l-orange-500">
+            <div className="text-2xl font-bold text-orange-600">{status.toSign}</div>
+            <div className="text-sm text-text-secondary">To Sign</div>
+            <div className="text-xs text-text-tertiary">Signer</div>
+          </div>
+          <div className="card p-4 border-l-4 border-l-purple-500">
+            <div className="text-2xl font-bold text-purple-600">{status.signedToReturn}</div>
+            <div className="text-sm text-text-secondary">To Return</div>
+            <div className="text-xs text-text-tertiary">Signer</div>
+          </div>
+          <div className="card p-4 border-l-4 border-l-success-500">
             <div className="text-2xl font-bold text-success-600">{status.completed}</div>
             <div className="text-sm text-text-secondary">Completed</div>
           </div>
         </div>
       )}
 
-      {/* Pending PDFs */}
+      {/* ===== OWNER SECTIONS ===== */}
+
+      {/* Documents to Share (Owner) */}
       <div className="card">
-        <div className="px-6 py-4 border-b border-border-primary">
-          <h2 className="text-lg font-semibold text-text-primary">Pending for Signature</h2>
+        <div className="px-6 py-4 border-b border-border-primary flex items-center gap-2">
+          <span className="px-2 py-0.5 text-xs font-medium bg-warning-100 text-warning-700 dark:bg-warning-900/30 dark:text-warning-400 rounded">Owner</span>
+          <h2 className="text-lg font-semibold text-text-primary">Documents to Share</h2>
         </div>
-        {pendingVaults.length === 0 ? (
+        {pendingToShareVaults.length === 0 ? (
           <div className="px-6 py-8 text-center text-text-secondary">
-            No PDFs pending signature
+            No documents pending to share
           </div>
         ) : (
           <div className="divide-y divide-border-secondary">
-            {pendingVaults.map((vault) => (
+            {pendingToShareVaults.map((vault) => (
               <div key={vault.vaultId} className="px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <svg className="h-8 w-8 text-warning-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -324,6 +362,7 @@ export default function PdfSigningPage() {
                   <div>
                     <div className="font-medium text-text-primary">{vault.filename || 'Unnamed PDF'}</div>
                     <div className="text-xs text-text-tertiary">
+                      {vault.description && <span>{vault.description} • </span>}
                       Created: {vault.createdAt ? new Date(vault.createdAt).toLocaleDateString() : 'Unknown'}
                     </div>
                   </div>
@@ -332,18 +371,9 @@ export default function PdfSigningPage() {
                   <button
                     onClick={() => {
                       setSelectedVault(vault);
-                      setShowSignModal(true);
-                    }}
-                    className="btn btn-sm btn-primary"
-                  >
-                    Sign
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedVault(vault);
                       setShowShareModal(true);
                     }}
-                    className="btn btn-sm btn-secondary"
+                    className="btn btn-sm btn-primary"
                   >
                     Share
                   </button>
@@ -363,21 +393,119 @@ export default function PdfSigningPage() {
         )}
       </div>
 
-      {/* Signed PDFs */}
+      {/* Awaiting Signature (Owner) */}
       <div className="card">
-        <div className="px-6 py-4 border-b border-border-primary">
-          <h2 className="text-lg font-semibold text-text-primary">Signed (Awaiting Delivery)</h2>
+        <div className="px-6 py-4 border-b border-border-primary flex items-center gap-2">
+          <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded">Owner</span>
+          <h2 className="text-lg font-semibold text-text-primary">Awaiting Signature</h2>
         </div>
-        {signedVaults.length === 0 ? (
+        {awaitingSignatureVaults.length === 0 ? (
           <div className="px-6 py-8 text-center text-text-secondary">
-            No signed PDFs awaiting delivery
+            No documents awaiting signature from others
           </div>
         ) : (
           <div className="divide-y divide-border-secondary">
-            {signedVaults.map((vault) => (
+            {awaitingSignatureVaults.map((vault) => (
               <div key={vault.vaultId} className="px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <svg className="h-8 w-8 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="h-8 w-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <div className="font-medium text-text-primary">{vault.filename || 'Unnamed PDF'}</div>
+                    <div className="text-xs text-text-tertiary">
+                      {vault.description && <span>{vault.description} • </span>}
+                      Shared: {vault.sharedAt ? new Date(vault.sharedAt).toLocaleDateString() : 'Unknown'}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedVault(vault);
+                      setShowDownloadModal(true);
+                    }}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    Download
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ===== SIGNER SECTIONS ===== */}
+
+      {/* Documents to Sign (Signer) */}
+      <div className="card">
+        <div className="px-6 py-4 border-b border-border-primary flex items-center gap-2">
+          <span className="px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 rounded">Signer</span>
+          <h2 className="text-lg font-semibold text-text-primary">Documents to Sign</h2>
+        </div>
+        {toSignVaults.length === 0 ? (
+          <div className="px-6 py-8 text-center text-text-secondary">
+            No documents received for signing
+          </div>
+        ) : (
+          <div className="divide-y divide-border-secondary">
+            {toSignVaults.map((vault) => (
+              <div key={vault.vaultId} className="px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <svg className="h-8 w-8 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  <div>
+                    <div className="font-medium text-text-primary">{vault.filename || 'Unnamed PDF'}</div>
+                    <div className="text-xs text-text-tertiary">
+                      {vault.description && <span>{vault.description} • </span>}
+                      Received: {vault.createdAt ? new Date(vault.createdAt).toLocaleDateString() : 'Unknown'}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedVault(vault);
+                      setShowSignModal(true);
+                    }}
+                    className="btn btn-sm btn-primary"
+                  >
+                    Sign
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedVault(vault);
+                      setShowDownloadModal(true);
+                    }}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    Download
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Signed - Return to Owner (Signer) */}
+      <div className="card">
+        <div className="px-6 py-4 border-b border-border-primary flex items-center gap-2">
+          <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 rounded">Signer</span>
+          <h2 className="text-lg font-semibold text-text-primary">Signed - Return to Owner</h2>
+        </div>
+        {signedToReturnVaults.length === 0 ? (
+          <div className="px-6 py-8 text-center text-text-secondary">
+            No signed documents to return
+          </div>
+        ) : (
+          <div className="divide-y divide-border-secondary">
+            {signedToReturnVaults.map((vault) => (
+              <div key={vault.vaultId} className="px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <svg className="h-8 w-8 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <div>
@@ -391,20 +519,20 @@ export default function PdfSigningPage() {
                   <button
                     onClick={() => {
                       setSelectedVault(vault);
-                      setShowDownloadModal(true);
+                      setShowShareModal(true);
                     }}
                     className="btn btn-sm btn-primary"
                   >
-                    Download
+                    Return to Owner
                   </button>
                   <button
                     onClick={() => {
                       setSelectedVault(vault);
-                      setShowShareModal(true);
+                      setShowDownloadModal(true);
                     }}
                     className="btn btn-sm btn-secondary"
                   >
-                    Return to Owner
+                    Download
                   </button>
                 </div>
               </div>
