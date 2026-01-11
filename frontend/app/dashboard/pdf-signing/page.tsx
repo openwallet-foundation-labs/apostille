@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pdfSigningApi, vaultApi, connectionApi } from '../../../lib/api';
 import { toast } from 'react-toastify';
+import Link from 'next/link';
+import { KeyManager, PdfSigner, StoredSigningKey, SigningKey } from '../../../lib/signing';
 
 interface PdfVault {
   vaultId: string;
@@ -69,11 +71,11 @@ export default function PdfSigningPage() {
   // Sign modal state
   const [showSignModal, setShowSignModal] = useState(false);
   const [selectedVault, setSelectedVault] = useState<PdfVault | null>(null);
-  const [signCertificate, setSignCertificate] = useState('');
-  const [signPrivateKey, setSignPrivateKey] = useState('');
+  const [signingKeys, setSigningKeys] = useState<StoredSigningKey[]>([]);
+  const [selectedKeyId, setSelectedKeyId] = useState('');
+  const [keyPassword, setKeyPassword] = useState('');
   const [signReason, setSignReason] = useState('');
   const [signLocation, setSignLocation] = useState('');
-  const [signName, setSignName] = useState('');
   const [signing, setSigning] = useState(false);
 
   // Share modal state
@@ -85,6 +87,20 @@ export default function PdfSigningPage() {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
+  // Load signing keys from IndexedDB
+  const loadSigningKeys = useCallback(async () => {
+    try {
+      const keys = await KeyManager.listKeys();
+      setSigningKeys(keys);
+      // Auto-select first key if available and none selected
+      if (keys.length > 0 && !selectedKeyId) {
+        setSelectedKeyId(keys[0].id);
+      }
+    } catch (error) {
+      console.error('Failed to load signing keys:', error);
+    }
+  }, [selectedKeyId]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -92,6 +108,9 @@ export default function PdfSigningPage() {
         pdfSigningApi.getStatus(),
         connectionApi.getAll(),
       ]);
+
+      // Also load signing keys
+      loadSigningKeys();
 
       if (statusRes.success) {
         setStatus(statusRes.status);
@@ -183,23 +202,42 @@ export default function PdfSigningPage() {
   };
 
   const handleSign = async () => {
-    if (!selectedVault || !signCertificate || !signPrivateKey) {
-      toast.error('Please provide certificate and private key');
+    if (!selectedVault || !selectedKeyId || !keyPassword) {
+      toast.error('Please select a signing key and enter your password');
       return;
     }
 
     setSigning(true);
     try {
-      const response = await pdfSigningApi.sign(selectedVault.vaultId, {
-        certificate: signCertificate,
-        privateKey: signPrivateKey,
+      // Step 1: Get the signing key from IndexedDB
+      toast.info('Loading signing key...');
+      const signingKey = await KeyManager.getKey(selectedKeyId, keyPassword);
+      if (!signingKey) {
+        throw new Error('Invalid password or key not found');
+      }
+
+      // Step 2: Download the PDF from vault (decrypted via KEM keys on backend)
+      toast.info('Downloading document...');
+      const pdfBlob = await pdfSigningApi.download(selectedVault.vaultId);
+      const pdfBytes = new Uint8Array(await pdfBlob.arrayBuffer());
+
+      // Step 3: Sign the PDF locally in the browser
+      toast.info('Signing document locally...');
+      const signedPdfBytes = await PdfSigner.signPdf(pdfBytes, signingKey, {
         reason: signReason || undefined,
         location: signLocation || undefined,
-        name: signName || undefined,
       });
 
+      // Step 4: Upload the signed PDF back to the server
+      toast.info('Uploading signed document...');
+      const response = await pdfSigningApi.uploadSigned(
+        selectedVault.vaultId,
+        signedPdfBytes,
+        signingKey.name
+      );
+
       if (response.success) {
-        toast.success('PDF signed successfully!');
+        toast.success('PDF signed successfully! Your private key never left your browser.');
         setShowSignModal(false);
         setSelectedVault(null);
         resetSignForm();
@@ -207,7 +245,11 @@ export default function PdfSigningPage() {
       }
     } catch (error: any) {
       console.error('Failed to sign PDF:', error);
-      toast.error(error.message || 'Failed to sign PDF');
+      if (error.message?.includes('password') || error.message?.includes('corrupted')) {
+        toast.error('Invalid password. Please check and try again.');
+      } else {
+        toast.error(error.message || 'Failed to sign PDF');
+      }
     } finally {
       setSigning(false);
     }
@@ -270,11 +312,9 @@ export default function PdfSigningPage() {
   };
 
   const resetSignForm = () => {
-    setSignCertificate('');
-    setSignPrivateKey('');
+    setKeyPassword('');
     setSignReason('');
     setSignLocation('');
-    setSignName('');
   };
 
   if (loading) {
@@ -679,77 +719,92 @@ export default function PdfSigningPage() {
       {/* Sign Modal */}
       {showSignModal && selectedVault && (
         <div className="modal-backdrop">
-          <div className="modal-container max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="modal-container max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-border-primary">
               <h3 className="text-lg font-semibold text-text-primary">Sign PDF</h3>
               <p className="text-sm text-text-tertiary">{selectedVault.filename || 'Unnamed PDF'}</p>
             </div>
 
             <div className="px-6 py-4 space-y-4">
-              <div className="p-3 bg-primary-50 dark:bg-primary-900/20 rounded-md text-sm text-primary-700 dark:text-primary-300">
+              <div className="p-3 bg-success-50 dark:bg-success-900/20 rounded-md text-sm text-success-700 dark:text-success-300">
                 <div className="flex items-start gap-2">
                   <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                   </svg>
-                  <span>Document will be decrypted using your KEM encryption keys. No passphrase required.</span>
+                  <span><strong>Client-side signing:</strong> Your private key never leaves your browser. The PDF is signed locally using WebCrypto.</span>
                 </div>
               </div>
 
-              <div>
-                <label className="form-label">Certificate (PEM) *</label>
-                <textarea
-                  value={signCertificate}
-                  onChange={(e) => setSignCertificate(e.target.value)}
-                  placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                  rows={4}
-                  className="input w-full font-mono text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="form-label">Private Key (PEM) *</label>
-                <textarea
-                  value={signPrivateKey}
-                  onChange={(e) => setSignPrivateKey(e.target.value)}
-                  placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
-                  rows={4}
-                  className="input w-full font-mono text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="form-label">Signer Name</label>
-                  <input
-                    type="text"
-                    value={signName}
-                    onChange={(e) => setSignName(e.target.value)}
-                    placeholder="John Doe"
-                    className="input w-full"
-                  />
+              {signingKeys.length === 0 ? (
+                <div className="p-4 bg-warning-50 dark:bg-warning-900/20 rounded-md border border-warning-200 dark:border-warning-800">
+                  <p className="text-warning-700 dark:text-warning-300 mb-3">
+                    No signing keys found. You need to create or import a signing key first.
+                  </p>
+                  <Link
+                    href="/dashboard/signing-keys"
+                    className="btn btn-sm bg-warning-600 hover:bg-warning-700 text-white"
+                  >
+                    Go to Signing Keys
+                  </Link>
                 </div>
-                <div>
-                  <label className="form-label">Location</label>
-                  <input
-                    type="text"
-                    value={signLocation}
-                    onChange={(e) => setSignLocation(e.target.value)}
-                    placeholder="New York, USA"
-                    className="input w-full"
-                  />
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="form-label">Select Signing Key *</label>
+                    <select
+                      value={selectedKeyId}
+                      onChange={(e) => setSelectedKeyId(e.target.value)}
+                      className="input w-full"
+                    >
+                      <option value="">-- Select a key --</option>
+                      {signingKeys.map((key) => (
+                        <option key={key.id} value={key.id}>
+                          {key.name} ({key.algorithm}) - Expires {new Date(key.expiresAt).toLocaleDateString()}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-text-tertiary mt-1">
+                      <Link href="/dashboard/signing-keys" className="text-primary-600 hover:text-primary-700">
+                        Manage signing keys
+                      </Link>
+                    </p>
+                  </div>
 
-              <div>
-                <label className="form-label">Reason</label>
-                <input
-                  type="text"
-                  value={signReason}
-                  onChange={(e) => setSignReason(e.target.value)}
-                  placeholder="e.g., Contract agreement"
-                  className="input w-full"
-                />
-              </div>
+                  <div>
+                    <label className="form-label">Key Password *</label>
+                    <input
+                      type="password"
+                      value={keyPassword}
+                      onChange={(e) => setKeyPassword(e.target.value)}
+                      placeholder="Password used to protect the key"
+                      className="input w-full"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="form-label">Location (optional)</label>
+                      <input
+                        type="text"
+                        value={signLocation}
+                        onChange={(e) => setSignLocation(e.target.value)}
+                        placeholder="New York, USA"
+                        className="input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Reason (optional)</label>
+                      <input
+                        type="text"
+                        value={signReason}
+                        onChange={(e) => setSignReason(e.target.value)}
+                        placeholder="Contract agreement"
+                        className="input w-full"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="px-6 py-4 border-t border-border-primary flex justify-end gap-3">
@@ -765,7 +820,7 @@ export default function PdfSigningPage() {
               </button>
               <button
                 onClick={handleSign}
-                disabled={!signCertificate || !signPrivateKey || signing}
+                disabled={!selectedKeyId || !keyPassword || signing || signingKeys.length === 0}
                 className="btn btn-primary"
               >
                 {signing ? 'Signing...' : 'Sign PDF'}

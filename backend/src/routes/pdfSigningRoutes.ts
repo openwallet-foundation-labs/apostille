@@ -375,6 +375,81 @@ router.post('/download/:vaultId', async (req: Request, res: Response) => {
 });
 
 /**
+ * Upload an already-signed PDF (client-side signing)
+ * POST /api/pdf-signing/upload-signed/:vaultId
+ *
+ * Receives a PDF that was signed client-side and stores it as a signed vault.
+ * The original vault metadata is preserved and signing info is added.
+ */
+router.post('/upload-signed/:vaultId', upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = (req as any).user;
+    const { vaultId } = req.params;
+    const { signerName } = req.body;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ error: 'Signed PDF file is required' });
+    }
+
+    const agent = await getAgent({ tenantId });
+
+    // Get the original vault info to preserve metadata
+    const vaultInfo = await agent.modules.vaults.getInfo(vaultId);
+    if (!vaultInfo) {
+      return res.status(404).json({ error: 'Original vault not found' });
+    }
+
+    // Find the connection ID for this vault
+    const connectionId = await findVaultConnectionId(agent, vaultInfo);
+    if (!connectionId) {
+      return res.status(400).json({
+        error: 'No KEM keys found',
+        message: 'Cannot store signed vault - no encryption keys available for this connection',
+      });
+    }
+
+    const signedPdfBytes = new Uint8Array(file.buffer);
+    const originalMetadata = vaultInfo.header?.metadata || {};
+
+    // Create a new signing vault with the signed PDF
+    const signedVault = await agent.modules.vaults.createSigningVault({
+      document: signedPdfBytes,
+      signerConnectionId: connectionId,
+      documentType: 'pdf',
+      metadata: {
+        ...originalMetadata,
+        originalVaultId: vaultId,
+        signedAt: new Date().toISOString(),
+        signerName: signerName || 'Unknown',
+        isSigned: true,
+        role: 'signer',
+        signedClientSide: true, // Flag to indicate client-side signing
+      },
+    });
+
+    console.log(`[PDF-Signing] Created client-side signed vault ${signedVault.vaultId} for original ${vaultId}`);
+
+    res.json({
+      success: true,
+      signedVault: {
+        vaultId: signedVault.vaultId,
+        docId: signedVault.docId,
+        originalVaultId: vaultId,
+        signedAt: new Date().toISOString(),
+        signerName: signerName || 'Unknown',
+      },
+    });
+  } catch (error: any) {
+    console.error('Error uploading signed PDF:', error);
+    res.status(500).json({
+      error: 'Failed to upload signed PDF',
+      message: error.message,
+    });
+  }
+});
+
+/**
  * Share a PDF vault with a connection for signing
  * POST /api/pdf-signing/share/:vaultId
  * Body: { connectionId }

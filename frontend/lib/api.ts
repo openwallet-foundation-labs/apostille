@@ -995,6 +995,33 @@ export const pdfSigningApi = {
   getStatus: async () => {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/pdf-signing/status`);
   },
+
+  /**
+   * Upload an already-signed PDF (client-side signing)
+   * The PDF is signed in the browser and uploaded to replace the unsigned version
+   */
+  uploadSigned: async (vaultId: string, signedPdfBytes: Uint8Array, signerName?: string) => {
+    const formData = new FormData();
+    const blob = new Blob([signedPdfBytes], { type: 'application/pdf' });
+    formData.append('file', blob, 'signed.pdf');
+    if (signerName) {
+      formData.append('signerName', signerName);
+    }
+
+    const token = getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/api/pdf-signing/upload-signed/${vaultId}`, {
+      method: 'POST',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      credentials: 'include',
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || data.error || 'Failed to upload signed PDF');
+    }
+    return data;
+  },
 };
 
 /**
