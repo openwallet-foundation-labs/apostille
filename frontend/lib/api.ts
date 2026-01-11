@@ -1002,7 +1002,12 @@ export const pdfSigningApi = {
    */
   uploadSigned: async (vaultId: string, signedPdfBytes: Uint8Array, signerName?: string) => {
     const formData = new FormData();
-    const blob = new Blob([signedPdfBytes], { type: 'application/pdf' });
+    // Convert Uint8Array to ArrayBuffer then to Blob for TypeScript compatibility
+    const arrayBuffer = signedPdfBytes.buffer.slice(
+      signedPdfBytes.byteOffset,
+      signedPdfBytes.byteOffset + signedPdfBytes.byteLength
+    ) as ArrayBuffer;
+    const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
     formData.append('file', blob, 'signed.pdf');
     if (signerName) {
       formData.append('signerName', signerName);

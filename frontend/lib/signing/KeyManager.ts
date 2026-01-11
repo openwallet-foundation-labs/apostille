@@ -309,8 +309,8 @@ export const KeyManager = {
       ['sign']
     );
 
-    // Extract public key from certificate
-    const publicKey = await certificate.subjectPublicKeyInfo.exportKey(crypto);
+    // Extract public key from certificate using importKey (imports into WebCrypto)
+    const publicKey = await certificate.getPublicKey();
 
     // Get dates from certificate
     const createdAt = certificate.notBefore.value;
@@ -381,13 +381,13 @@ export const KeyManager = {
       }),
     });
 
-    // Encrypt the key bag
-    await keySafeBag.bagValue.makeInternalValues({
+    // Encrypt the key bag (type assertion needed for PKI.js internal API)
+    await (keySafeBag.bagValue as pkijs.PKCS8ShroudedKeyBag).makeInternalValues({
       password: pvutils.stringToArrayBuffer(exportPassword),
       contentEncryptionAlgorithm: {
         name: 'AES-CBC',
         length: 256,
-      },
+      } as unknown as pkijs.ContentEncryptionAlgorithm,
       hmacHashAlgorithm: 'SHA-256',
       iterationCount: 100000,
     });
@@ -477,12 +477,13 @@ export const KeyManager = {
             certificate = certBag.parsedValue;
           }
         } else if (safeBag.bagId === '1.2.840.113549.1.12.10.1.2') {
-          // pkcs8ShroudedKeyBag
+          // pkcs8ShroudedKeyBag (use any cast to access internal API)
           const keyBag = safeBag.bagValue as pkijs.PKCS8ShroudedKeyBag;
-          await keyBag.parseInternalValues({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (keyBag as any).parseInternalValues({
             password: pvutils.stringToArrayBuffer(filePassword),
           });
-          privateKeyInfo = keyBag.parsedValue;
+          privateKeyInfo = keyBag.parsedValue ?? null;
         } else if (safeBag.bagId === '1.2.840.113549.1.12.10.1.1') {
           // keyBag (unencrypted)
           privateKeyInfo = safeBag.bagValue as pkijs.PrivateKeyInfo;
@@ -534,7 +535,7 @@ export const KeyManager = {
     );
 
     // Extract public key
-    const publicKey = await certificate.subjectPublicKeyInfo.exportKey(crypto);
+    const publicKey = await certificate.getPublicKey();
 
     const certificatePem = certificateToPem(certificate);
     const id = generateKeyId();

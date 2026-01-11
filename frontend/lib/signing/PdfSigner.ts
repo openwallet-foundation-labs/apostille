@@ -131,8 +131,9 @@ async function createPkcs7SignedData(
     ],
   });
 
-  // Calculate message digest
-  const hashBuffer = await crypto.subtle.digest(hashAlgorithm, dataToSign);
+  // Calculate message digest (convert Uint8Array to ArrayBuffer for TypeScript compatibility)
+  const dataBuffer = dataToSign.buffer.slice(dataToSign.byteOffset, dataToSign.byteOffset + dataToSign.byteLength) as ArrayBuffer;
+  const hashBuffer = await crypto.subtle.digest(hashAlgorithm, dataBuffer);
 
   // Update message digest attribute
   cmsSigned.signerInfos[0].signedAttrs!.attributes[2].values = [
@@ -381,8 +382,9 @@ export const PdfSigner = {
 
           const contents = (contentsObj as PDFHexString).asBytes();
 
-          // Parse PKCS#7
-          const asn1 = asn1js.fromBER(contents.buffer);
+          // Parse PKCS#7 (convert to ArrayBuffer for TypeScript compatibility)
+          const contentsBuffer = contents.buffer.slice(contents.byteOffset, contents.byteOffset + contents.byteLength) as ArrayBuffer;
+          const asn1 = asn1js.fromBER(contentsBuffer);
           if (asn1.offset === -1) {
             return {
               signerName: 'Unknown',
