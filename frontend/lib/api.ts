@@ -880,7 +880,7 @@ export const vaultApi = {
 /**
  * PDF Signing API functions
  * For PDF document signing workflows with vaults
- * Uses ML-KEM-768 post-quantum encryption (no passphrase needed)
+ * Uses ML-KEM-768 post-quantum encryption ()
  */
 export const pdfSigningApi = {
   /**
@@ -915,9 +915,9 @@ export const pdfSigningApi = {
 
   /**
    * Sign a PDF stored in a vault
+   * Uses KEM keys for decryption - 
    */
   sign: async (vaultId: string, params: {
-    passphrase: string;
     certificate: string;
     privateKey: string;
     reason?: string;
@@ -934,8 +934,9 @@ export const pdfSigningApi = {
 
   /**
    * Download a decrypted PDF from a vault
+   * Uses KEM keys for decryption - 
    */
-  download: async (vaultId: string, passphrase: string) => {
+  download: async (vaultId: string) => {
     const token = getAccessToken();
     const response = await fetch(`${API_BASE_URL}/api/pdf-signing/download/${vaultId}`, {
       method: 'POST',
@@ -944,7 +945,6 @@ export const pdfSigningApi = {
         ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       },
       credentials: 'include',
-      body: JSON.stringify({ passphrase }),
     });
 
     if (!response.ok) {

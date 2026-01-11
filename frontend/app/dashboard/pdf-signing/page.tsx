@@ -69,7 +69,6 @@ export default function PdfSigningPage() {
   // Sign modal state
   const [showSignModal, setShowSignModal] = useState(false);
   const [selectedVault, setSelectedVault] = useState<PdfVault | null>(null);
-  const [signPassphrase, setSignPassphrase] = useState('');
   const [signCertificate, setSignCertificate] = useState('');
   const [signPrivateKey, setSignPrivateKey] = useState('');
   const [signReason, setSignReason] = useState('');
@@ -84,7 +83,6 @@ export default function PdfSigningPage() {
 
   // Download modal state
   const [showDownloadModal, setShowDownloadModal] = useState(false);
-  const [downloadPassphrase, setDownloadPassphrase] = useState('');
   const [downloading, setDownloading] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -185,15 +183,14 @@ export default function PdfSigningPage() {
   };
 
   const handleSign = async () => {
-    if (!selectedVault || !signPassphrase || !signCertificate || !signPrivateKey) {
-      toast.error('Please fill in all required fields');
+    if (!selectedVault || !signCertificate || !signPrivateKey) {
+      toast.error('Please provide certificate and private key');
       return;
     }
 
     setSigning(true);
     try {
       const response = await pdfSigningApi.sign(selectedVault.vaultId, {
-        passphrase: signPassphrase,
         certificate: signCertificate,
         privateKey: signPrivateKey,
         reason: signReason || undefined,
@@ -241,14 +238,15 @@ export default function PdfSigningPage() {
   };
 
   const handleDownload = async () => {
-    if (!selectedVault || !downloadPassphrase) {
-      toast.error('Please enter passphrase');
+    if (!selectedVault) {
+      toast.error('No vault selected');
       return;
     }
 
     setDownloading(true);
     try {
-      const blob = await pdfSigningApi.download(selectedVault.vaultId, downloadPassphrase);
+      //  - uses KEM keys automatically
+      const blob = await pdfSigningApi.download(selectedVault.vaultId);
 
       // Create download link
       const url = URL.createObjectURL(blob);
@@ -263,7 +261,6 @@ export default function PdfSigningPage() {
       toast.success('PDF downloaded!');
       setShowDownloadModal(false);
       setSelectedVault(null);
-      setDownloadPassphrase('');
     } catch (error: any) {
       console.error('Failed to download PDF:', error);
       toast.error(error.message || 'Failed to download PDF');
@@ -273,7 +270,6 @@ export default function PdfSigningPage() {
   };
 
   const resetSignForm = () => {
-    setSignPassphrase('');
     setSignCertificate('');
     setSignPrivateKey('');
     setSignReason('');
@@ -690,15 +686,13 @@ export default function PdfSigningPage() {
             </div>
 
             <div className="px-6 py-4 space-y-4">
-              <div>
-                <label className="form-label">Vault Passphrase *</label>
-                <input
-                  type="password"
-                  value={signPassphrase}
-                  onChange={(e) => setSignPassphrase(e.target.value)}
-                  placeholder="Enter vault passphrase"
-                  className="input w-full"
-                />
+              <div className="p-3 bg-primary-50 dark:bg-primary-900/20 rounded-md text-sm text-primary-700 dark:text-primary-300">
+                <div className="flex items-start gap-2">
+                  <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  </svg>
+                  <span>Document will be decrypted using your KEM encryption keys. No passphrase required.</span>
+                </div>
               </div>
 
               <div>
@@ -771,7 +765,7 @@ export default function PdfSigningPage() {
               </button>
               <button
                 onClick={handleSign}
-                disabled={!signPassphrase || !signCertificate || !signPrivateKey || signing}
+                disabled={!signCertificate || !signPrivateKey || signing}
                 className="btn btn-primary"
               >
                 {signing ? 'Signing...' : 'Sign PDF'}
@@ -841,15 +835,13 @@ export default function PdfSigningPage() {
             </div>
 
             <div className="px-6 py-4 space-y-4">
-              <div>
-                <label className="form-label">Passphrase</label>
-                <input
-                  type="password"
-                  value={downloadPassphrase}
-                  onChange={(e) => setDownloadPassphrase(e.target.value)}
-                  placeholder="Enter vault passphrase"
-                  className="input w-full"
-                />
+              <div className="p-3 bg-primary-50 dark:bg-primary-900/20 rounded-md text-sm text-primary-700 dark:text-primary-300">
+                <div className="flex items-start gap-2">
+                  <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  </svg>
+                  <span>Document will be decrypted using your KEM encryption keys. No passphrase required.</span>
+                </div>
               </div>
             </div>
 
@@ -858,7 +850,6 @@ export default function PdfSigningPage() {
                 onClick={() => {
                   setShowDownloadModal(false);
                   setSelectedVault(null);
-                  setDownloadPassphrase('');
                 }}
                 className="btn btn-secondary"
               >
@@ -866,7 +857,7 @@ export default function PdfSigningPage() {
               </button>
               <button
                 onClick={handleDownload}
-                disabled={!downloadPassphrase || downloading}
+                disabled={downloading}
                 className="btn btn-primary"
               >
                 {downloading ? 'Downloading...' : 'Download'}
