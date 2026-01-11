@@ -304,6 +304,8 @@ router.route('/messages/:connectionId')
 
 // KEM key exchange tag for storing local keypairs
 const KEM_KEYPAIR_TAG = 'kem-keypair-connection';
+// Tag for pending KEM key exchange requests (must match agentService.ts)
+const KEM_PENDING_REQUEST_TAG = 'kem-pending-request';
 
 /**
  * Get KEM key exchange status for a connection
@@ -343,6 +345,18 @@ router.route('/:connectionId/kem-status')
       // Check if we have peer's KEM key stored
       const hasPeerKey = await agent.modules.vaults.hasPeerKemKey(connectionId);
 
+      // Check if there's a pending key exchange request from the peer
+      const pendingRequests = await agent.genericRecords.findAllByQuery({
+        type: KEM_PENDING_REQUEST_TAG,
+        connectionId: connectionId,
+        status: 'pending',
+      });
+      const hasPendingRequest = pendingRequests.length > 0;
+      const pendingRequest = hasPendingRequest ? {
+        receivedAt: pendingRequests[0].content.receivedAt,
+        peerAlgorithm: pendingRequests[0].content.peerAlgorithm,
+      } : null;
+
       res.status(200).json({
         success: true,
         status: {
@@ -350,6 +364,8 @@ router.route('/:connectionId/kem-status')
           hasLocalKey,
           hasPeerKey,
           ready: hasLocalKey && hasPeerKey,
+          hasPendingRequest,
+          pendingRequest,
         },
       });
     } catch (error: any) {
@@ -467,6 +483,132 @@ router.route('/:connectionId/exchange-keys')
       res.status(500).json({
         success: false,
         message: error.message || 'Failed to initiate KEM key exchange',
+      });
+    }
+  });
+
+/**
+ * Accept a pending KEM key exchange request
+ * Generates our keypair and sends it back to the peer who initiated the exchange
+ */
+router.route('/:connectionId/accept-key-exchange')
+  .post(auth, async (req: Request, res: Response) => {
+    try {
+      const { connectionId } = req.params;
+      const tenantId = req.user.tenantId;
+
+      if (!tenantId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Tenant ID not found in authentication token'
+        });
+      }
+
+      const agent = await getAgent({ tenantId });
+
+      // Check if connection exists
+      const connection = await agent.connections.findById(connectionId);
+      if (!connection) {
+        return res.status(404).json({
+          success: false,
+          message: `Connection with ID ${connectionId} not found`
+        });
+      }
+
+      // Check if there's a pending request for this connection
+      const pendingRequests = await agent.genericRecords.findAllByQuery({
+        type: KEM_PENDING_REQUEST_TAG,
+        connectionId: connectionId,
+        status: 'pending',
+      });
+
+      if (pendingRequests.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No pending key exchange request for this connection'
+        });
+      }
+
+      // Check if we already have a keypair (shouldn't happen, but check anyway)
+      const existingKeypairs = await agent.genericRecords.findAllByQuery({
+        type: KEM_KEYPAIR_TAG,
+        connectionId: connectionId,
+      });
+
+      let keypair: { kid: string; publicKey: Uint8Array; secretKey: Uint8Array };
+
+      if (existingKeypairs.length > 0) {
+        // Use existing keypair
+        const existing = existingKeypairs[0];
+        keypair = {
+          kid: existing.content.kid as string,
+          publicKey: new Uint8Array(Buffer.from(existing.content.publicKey as string, 'base64url')),
+          secretKey: new Uint8Array(Buffer.from(existing.content.secretKey as string, 'base64url')),
+        };
+        console.log(`[KEM] Using existing keypair for accept: ${keypair.kid}`);
+      } else {
+        // Generate new KEM keypair
+        keypair = agent.modules.vaults.generateKemKeypair();
+        console.log(`[KEM] Generated new keypair for accept: ${keypair.kid}`);
+
+        // Store the keypair locally
+        await agent.genericRecords.save({
+          content: {
+            kid: keypair.kid,
+            publicKey: Buffer.from(keypair.publicKey).toString('base64url'),
+            secretKey: Buffer.from(keypair.secretKey).toString('base64url'),
+            connectionId: connectionId,
+            createdAt: new Date().toISOString(),
+          },
+          tags: {
+            type: KEM_KEYPAIR_TAG,
+            connectionId: connectionId,
+            kid: keypair.kid,
+          },
+        });
+      }
+
+      // Send our public key back to the peer
+      const kemKeyMessage = JSON.stringify({
+        type: 'kem-key-exchange',
+        kid: keypair.kid,
+        publicKey: Buffer.from(keypair.publicKey).toString('base64url'),
+        algorithm: 'ML-KEM-768',
+        timestamp: new Date().toISOString(),
+      });
+
+      await agent.basicMessages.sendMessage(connectionId, kemKeyMessage);
+      console.log(`[KEM] Sent acceptance response to connection ${connectionId}`);
+
+      // Mark the pending request as accepted
+      const pendingRecord = pendingRequests[0];
+      pendingRecord.content = {
+        ...pendingRecord.content,
+        status: 'accepted',
+        acceptedAt: new Date().toISOString(),
+      };
+      pendingRecord.setTag('status', 'accepted');
+      await agent.genericRecords.update(pendingRecord);
+
+      // Check current status
+      const hasPeerKey = await agent.modules.vaults.hasPeerKemKey(connectionId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Key exchange accepted',
+        status: {
+          connectionId,
+          hasLocalKey: true,
+          hasPeerKey,
+          ready: hasPeerKey,
+          kid: keypair.kid,
+        },
+      });
+    } catch (error: any) {
+      console.error('Failed to accept KEM key exchange:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to accept KEM key exchange',
       });
     }
   });

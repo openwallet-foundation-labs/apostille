@@ -26,6 +26,11 @@ interface KemStatus {
   hasLocalKey: boolean;
   hasPeerKey: boolean;
   ready: boolean;
+  hasPendingRequest?: boolean;
+  pendingRequest?: {
+    receivedAt: string;
+    peerAlgorithm: string;
+  } | null;
 }
 
 
@@ -111,6 +116,7 @@ export default function ConnectionsPage() {
   // KEM key exchange state
   const [kemStatuses, setKemStatuses] = useState<Record<string, KemStatus>>({});
   const [exchangingKeys, setExchangingKeys] = useState<Record<string, boolean>>({});
+  const [acceptingKeys, setAcceptingKeys] = useState<Record<string, boolean>>({});
 
 
 
@@ -254,7 +260,7 @@ export default function ConnectionsPage() {
     }
   }, [connections]);
 
-  // Handle key exchange
+  // Handle key exchange (initiate)
   const handleExchangeKeys = async (connectionId: string) => {
     setExchangingKeys(prev => ({ ...prev, [connectionId]: true }));
     setError(null);
@@ -268,7 +274,7 @@ export default function ConnectionsPage() {
           ...prev,
           [connectionId]: response.status,
         }));
-        setAcceptSuccess('Key exchange initiated! Waiting for peer to exchange keys.');
+        setAcceptSuccess('Key exchange initiated! Waiting for peer to accept.');
       } else {
         throw new Error(response.message || 'Failed to exchange keys');
       }
@@ -277,6 +283,36 @@ export default function ConnectionsPage() {
       setError(err.message || 'Failed to exchange keys');
     } finally {
       setExchangingKeys(prev => ({ ...prev, [connectionId]: false }));
+    }
+  };
+
+  // Handle accepting a pending key exchange request
+  const handleAcceptKeyExchange = async (connectionId: string) => {
+    setAcceptingKeys(prev => ({ ...prev, [connectionId]: true }));
+    setError(null);
+
+    try {
+      const response = await connectionApi.acceptKeyExchange(connectionId);
+
+      if (response.success) {
+        // Update KEM status
+        setKemStatuses(prev => ({
+          ...prev,
+          [connectionId]: {
+            ...response.status,
+            hasPendingRequest: false,
+            pendingRequest: null,
+          },
+        }));
+        setAcceptSuccess('Key exchange accepted! Encryption is now ready.');
+      } else {
+        throw new Error(response.message || 'Failed to accept key exchange');
+      }
+    } catch (err: any) {
+      console.error('Accept key exchange failed:', err);
+      setError(err.message || 'Failed to accept key exchange');
+    } finally {
+      setAcceptingKeys(prev => ({ ...prev, [connectionId]: false }));
     }
   };
 
@@ -926,13 +962,23 @@ export default function ConnectionsPage() {
                               </span>
                             );
                           }
+                          if (status.hasPendingRequest) {
+                            return (
+                              <span className="inline-flex items-center text-primary-600 text-sm font-medium">
+                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                </svg>
+                                Pending Request
+                              </span>
+                            );
+                          }
                           if (status.hasLocalKey && !status.hasPeerKey) {
                             return (
                               <span className="inline-flex items-center text-warning-600 text-sm">
                                 <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
-                                Waiting...
+                                Awaiting Peer
                               </span>
                             );
                           }
@@ -964,7 +1010,27 @@ export default function ConnectionsPage() {
                         )}
                         {(connection.state === 'completed' || connection.state === 'complete') && (
                           <>
-                            {(!kemStatuses[connection.id]?.ready) && (
+                            {kemStatuses[connection.id]?.hasPendingRequest && (
+                              <button
+                                onClick={() => handleAcceptKeyExchange(connection.id)}
+                                disabled={acceptingKeys[connection.id]}
+                                className={`text-sm px-2 py-1 rounded transition-colors duration-200 ${
+                                  acceptingKeys[connection.id]
+                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                    : 'bg-success-100 text-success-700 hover:bg-success-200'
+                                }`}
+                              >
+                                {acceptingKeys[connection.id] ? (
+                                  <span className="flex items-center">
+                                    <span className="spinner h-3 w-3 mr-1"></span>
+                                    Accepting...
+                                  </span>
+                                ) : (
+                                  'Accept Key Exchange'
+                                )}
+                              </button>
+                            )}
+                            {(!kemStatuses[connection.id]?.ready && !kemStatuses[connection.id]?.hasPendingRequest) && (
                               <button
                                 onClick={() => handleExchangeKeys(connection.id)}
                                 disabled={exchangingKeys[connection.id] || kemStatuses[connection.id]?.hasLocalKey}

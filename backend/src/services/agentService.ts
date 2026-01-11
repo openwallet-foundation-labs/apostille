@@ -617,10 +617,95 @@ const setupConnectionListener = async (agent: Agent) => {
 
 // KEM key exchange tag (must match connectionRoutes.ts)
 const KEM_KEYPAIR_TAG = 'kem-keypair-connection';
+// Tag for pending KEM key exchange requests
+const KEM_PENDING_REQUEST_TAG = 'kem-pending-request';
+
+/**
+ * Process any existing unprocessed KEM key exchange messages
+ * This is called when a tenant agent is activated to catch up on messages
+ * received while the agent was offline
+ */
+const processExistingKemMessages = async (agent: Agent<any>) => {
+    try {
+        // Get all basic messages
+        const basicMessages = await agent.basicMessages.findAllByQuery({});
+
+        for (const message of basicMessages) {
+            // Only process received messages
+            if (message.role !== 'receiver') continue;
+
+            // Try to parse as KEM key exchange message
+            let kemData: { type: string; kid: string; publicKey: string; algorithm?: string } | null = null;
+            try {
+                kemData = JSON.parse(message.content);
+            } catch {
+                continue; // Not JSON, skip
+            }
+
+            if (kemData?.type !== 'kem-key-exchange' || !kemData.kid || !kemData.publicKey) {
+                continue; // Not a KEM message
+            }
+
+            const connectionId = message.connectionId;
+
+            // Check if we already have this peer's key stored
+            const hasPeerKey = await agent.modules.vaults.hasPeerKemKey(connectionId);
+            if (hasPeerKey) {
+                continue; // Already processed
+            }
+
+            console.log(`[KEM] Processing existing message for connection ${connectionId}: kid=${kemData.kid}`);
+
+            // Store peer's public key
+            const publicKeyBytes = new Uint8Array(Buffer.from(kemData.publicKey, 'base64url'));
+            await agent.modules.vaults.storePeerKemKey(connectionId, {
+                kid: kemData.kid,
+                publicKey: publicKeyBytes,
+            });
+            console.log(`[KEM] Stored peer key for connection ${connectionId}`);
+
+            // Check if we already have a local keypair
+            const existingKeypairs = await agent.genericRecords.findAllByQuery({
+                type: KEM_KEYPAIR_TAG,
+                connectionId: connectionId,
+            });
+
+            if (existingKeypairs.length === 0) {
+                // Check if we already have a pending request
+                const existingPending = await agent.genericRecords.findAllByQuery({
+                    type: KEM_PENDING_REQUEST_TAG,
+                    connectionId: connectionId,
+                });
+
+                if (existingPending.length === 0) {
+                    // Store as a pending request
+                    await agent.genericRecords.save({
+                        content: {
+                            connectionId: connectionId,
+                            peerKid: kemData.kid,
+                            peerAlgorithm: kemData.algorithm || 'ML-KEM-768',
+                            receivedAt: message.createdAt || new Date().toISOString(),
+                            status: 'pending',
+                        },
+                        tags: {
+                            type: KEM_PENDING_REQUEST_TAG,
+                            connectionId: connectionId,
+                            status: 'pending',
+                        },
+                    });
+                    console.log(`[KEM] Created pending request for connection ${connectionId} from existing message`);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[KEM] Error processing existing messages:', error);
+    }
+};
 
 /**
  * Set up KEM key exchange message handler for a tenant agent
  * Listens for incoming basic messages that contain KEM key exchange data
+ * Stores the peer's key and creates a pending request for the user to accept
  */
 const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
     agent.events.on<BasicMessageStateChangedEvent>(BasicMessageEventTypes.BasicMessageStateChanged, async ({ payload }) => {
@@ -654,44 +739,43 @@ const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
             });
             console.log(`[KEM] Stored peer key for connection ${connectionId}`);
 
-            // Auto-respond with our own key if we don't have one yet
+            // Check if we already have a local keypair (meaning we initiated the exchange)
             const existingKeypairs = await agent.genericRecords.findAllByQuery({
                 type: KEM_KEYPAIR_TAG,
                 connectionId: connectionId,
             });
 
             if (existingKeypairs.length === 0) {
-                // Generate our keypair and send back
-                const keypair = agent.modules.vaults.generateKemKeypair();
-                console.log(`[KEM] Auto-generating response keypair for connection ${connectionId}: kid=${keypair.kid}`);
-
-                // Store our keypair
-                await agent.genericRecords.save({
-                    content: {
-                        kid: keypair.kid,
-                        publicKey: Buffer.from(keypair.publicKey).toString('base64url'),
-                        secretKey: Buffer.from(keypair.secretKey).toString('base64url'),
-                        connectionId: connectionId,
-                        createdAt: new Date().toISOString(),
-                    },
-                    tags: {
-                        type: KEM_KEYPAIR_TAG,
-                        connectionId: connectionId,
-                        kid: keypair.kid,
-                    },
+                // We didn't initiate - this is an incoming request
+                // Check if we already have a pending request for this connection
+                const existingPending = await agent.genericRecords.findAllByQuery({
+                    type: KEM_PENDING_REQUEST_TAG,
+                    connectionId: connectionId,
                 });
 
-                // Send our public key back
-                const responseMessage = JSON.stringify({
-                    type: 'kem-key-exchange',
-                    kid: keypair.kid,
-                    publicKey: Buffer.from(keypair.publicKey).toString('base64url'),
-                    algorithm: 'ML-KEM-768',
-                    timestamp: new Date().toISOString(),
-                });
-
-                await agent.basicMessages.sendMessage(connectionId, responseMessage);
-                console.log(`[KEM] Sent response key to connection ${connectionId}`);
+                if (existingPending.length === 0) {
+                    // Store as a pending request for the user to accept
+                    await agent.genericRecords.save({
+                        content: {
+                            connectionId: connectionId,
+                            peerKid: kemData.kid,
+                            peerAlgorithm: kemData.algorithm || 'ML-KEM-768',
+                            receivedAt: new Date().toISOString(),
+                            status: 'pending',
+                        },
+                        tags: {
+                            type: KEM_PENDING_REQUEST_TAG,
+                            connectionId: connectionId,
+                            status: 'pending',
+                        },
+                    });
+                    console.log(`[KEM] Created pending key exchange request for connection ${connectionId}`);
+                } else {
+                    console.log(`[KEM] Pending request already exists for connection ${connectionId}`);
+                }
+            } else {
+                // We already have a keypair - this is a response to our request
+                console.log(`[KEM] Received response to our key exchange for connection ${connectionId}`);
             }
         } catch (error) {
             console.error('[KEM] Error processing key exchange message:', error);
@@ -749,6 +833,11 @@ export async function getAgent({
             // Set up KEM key exchange message handler
             setupKemKeyExchangeHandler(tenantAgent);
 
+            // Process any existing unprocessed KEM messages (async, don't block)
+            processExistingKemMessages(tenantAgent).catch(err =>
+                console.error('[KEM] Failed to process existing messages:', err)
+            );
+
             // Track activity in Redis
             await tenantActivityCache.set(tenantId, { lastAccess: new Date().toISOString(), podId: POD_ID });
 
@@ -775,6 +864,11 @@ export async function getAgent({
         // Set up KEM key exchange message handler
         setupKemKeyExchangeHandler(tenantAgent);
 
+        // Process any existing unprocessed KEM messages (async, don't block)
+        processExistingKemMessages(tenantAgent).catch(err =>
+            console.error('[KEM] Failed to process existing messages:', err)
+        );
+
         await ensureTenantWorkflowQueue(tenantAgent, tenantId);
 
         return tenantAgent;
@@ -793,6 +887,11 @@ export async function getAgent({
 
             // Set up KEM key exchange message handler
             setupKemKeyExchangeHandler(tenantAgent);
+
+            // Process any existing unprocessed KEM messages (async, don't block)
+            processExistingKemMessages(tenantAgent).catch(err =>
+                console.error('[KEM] Failed to process existing messages:', err)
+            );
 
             await ensureTenantWorkflowQueue(tenantAgent, tenantId);
 

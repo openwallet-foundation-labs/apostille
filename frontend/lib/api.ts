@@ -215,6 +215,17 @@ export const connectionApi = {
       headers: { 'Content-Type': 'application/json' },
     });
   },
+
+  /**
+   * Accept a pending KEM key exchange request from a peer
+   * Generates local keypair and sends public key back to the peer who initiated
+   */
+  acceptKeyExchange: async (connectionId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/connections/${connectionId}/accept-key-exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+  },
 };
 
 /**
