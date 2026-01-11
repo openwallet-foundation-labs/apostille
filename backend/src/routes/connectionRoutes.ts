@@ -343,14 +343,57 @@ router.route('/:connectionId/kem-status')
       const hasLocalKey = localKeypairs.length > 0;
 
       // Check if we have peer's KEM key stored
-      const hasPeerKey = await agent.modules.vaults.hasPeerKemKey(connectionId);
+      let hasPeerKey = await agent.modules.vaults.hasPeerKemKey(connectionId);
+
+      // If we don't have peer's key, check basic messages for unprocessed KEM messages
+      // This handles the case where both users initiated exchange simultaneously
+      if (!hasPeerKey) {
+        const basicMessages = await agent.basicMessages.findAllByQuery({
+          connectionId: connectionId,
+        });
+
+        for (const message of basicMessages) {
+          if (message.role !== 'receiver') continue;
+
+          try {
+            const kemData = JSON.parse(message.content);
+            if (kemData?.type === 'kem-key-exchange' && kemData.kid && kemData.publicKey) {
+              // Found an unprocessed KEM message - store the peer's key
+              const publicKeyBytes = new Uint8Array(Buffer.from(kemData.publicKey, 'base64url'));
+              await agent.modules.vaults.storePeerKemKey(connectionId, {
+                kid: kemData.kid,
+                publicKey: publicKeyBytes,
+              });
+              console.log(`[KEM] Processed inline KEM message for connection ${connectionId}`);
+              hasPeerKey = true;
+              break;
+            }
+          } catch {
+            // Not a JSON message, skip
+          }
+        }
+      }
 
       // Check if there's a pending key exchange request from the peer
-      const pendingRequests = await agent.genericRecords.findAllByQuery({
+      let pendingRequests = await agent.genericRecords.findAllByQuery({
         type: KEM_PENDING_REQUEST_TAG,
         connectionId: connectionId,
         status: 'pending',
       });
+
+      // If we now have both keys but there's still a pending request, mark it as completed
+      if (hasLocalKey && hasPeerKey && pendingRequests.length > 0) {
+        const pendingRecord = pendingRequests[0];
+        pendingRecord.content = {
+          ...pendingRecord.content,
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        };
+        pendingRecord.setTag('status', 'completed');
+        await agent.genericRecords.update(pendingRecord);
+        pendingRequests = []; // Clear so UI doesn't show pending
+      }
+
       const hasPendingRequest = pendingRequests.length > 0;
       const pendingRequest = hasPendingRequest ? {
         receivedAt: pendingRequests[0].content.receivedAt,
