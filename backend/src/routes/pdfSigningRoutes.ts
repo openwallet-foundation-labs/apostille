@@ -80,12 +80,20 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
         description: description || 'PDF for signing',
         role: 'owner',  // This user owns the document
         signerConnectionId: recipientConnectionId,  // Who should sign it
-        status: 'pending_share',  // Track workflow state
         createdAt: new Date().toISOString(),
       },
     });
 
     console.log(`[PDF-Signing] Created vault ${result.vaultId} for connection ${recipientConnectionId}`);
+
+    // Auto-share the vault with the recipient
+    try {
+      await agent.modules.vaults.shareSigningVault(result.vaultId, recipientConnectionId);
+      console.log(`[PDF-Signing] Auto-shared vault ${result.vaultId} with connection ${recipientConnectionId}`);
+    } catch (shareError: any) {
+      console.error(`[PDF-Signing] Failed to auto-share vault ${result.vaultId}:`, shareError.message);
+      // Don't fail the upload if sharing fails - vault is still created
+    }
 
     res.json({
       success: true,
@@ -264,14 +272,7 @@ router.post('/share/:vaultId', async (req: Request, res: Response) => {
     // Share the vault via DIDComm
     await agent.modules.vaults.shareSigningVault(vaultId, connectionId);
 
-    // Update the vault status to 'shared'
-    const vaultInfo = await agent.modules.vaults.getInfo(vaultId);
-    const existingMetadata = vaultInfo.header?.metadata || {};
-    await agent.modules.vaults.updateMetadata(vaultId, {
-      ...existingMetadata,
-      status: 'shared',
-      sharedAt: new Date().toISOString(),
-    });
+    console.log(`[PDF-Signing] Shared vault ${vaultId} with connection ${connectionId}`);
 
     res.json({
       success: true,
@@ -473,14 +474,11 @@ router.get('/status', async (req: Request, res: Response) => {
 
     console.log('[PDF-Signing] Owned vaults:', ownedVaults.length, 'Received vaults:', receivedVaults.length);
 
-    // Owner's view
-    const pendingToShare = ownedVaults.filter((v: any) => {
-      const meta = v.header?.metadata;
-      return meta?.status === 'pending_share' || (!meta?.status && !meta?.sharedAt);
-    });
+    // Owner's view - with auto-share, all owned vaults go directly to awaiting signature
+    const pendingToShare: any[] = []; // Empty - we auto-share now
     const awaitingSignature = ownedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
-      return (meta?.status === 'shared' || meta?.sharedAt) && !meta?.returnedAt;
+      return !meta?.returnedAt; // All owned vaults not returned are awaiting signature
     });
 
     // Signer's view
