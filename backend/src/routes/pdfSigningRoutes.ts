@@ -304,6 +304,15 @@ router.post('/sign/:vaultId', async (req: Request, res: Response) => {
 
     console.log(`[PDF-Signing] Created signed vault ${signedVault.vaultId}`);
 
+    // Share the signed vault back to the owner
+    try {
+      await agent.modules.vaults.shareSigningVault(signedVault.vaultId, signConnectionId);
+      console.log(`[PDF-Signing] Shared signed vault ${signedVault.vaultId} back to owner via connection ${signConnectionId}`);
+    } catch (shareError: any) {
+      console.error(`[PDF-Signing] Failed to share signed vault back to owner:`, shareError.message);
+      // Don't fail the request - vault is created, sharing can be retried
+    }
+
     res.json({
       success: true,
       signedVault: {
@@ -479,6 +488,15 @@ router.post('/upload-signed/:vaultId', upload.single('file'), async (req: Reques
     });
 
     console.log(`[PDF-Signing] Created client-side signed vault ${signedVault.vaultId} for original ${vaultId}`);
+
+    // Share the signed vault back to the owner
+    try {
+      await agent.modules.vaults.shareSigningVault(signedVault.vaultId, uploadConnectionId);
+      console.log(`[PDF-Signing] Shared signed vault ${signedVault.vaultId} back to owner via connection ${uploadConnectionId}`);
+    } catch (shareError: any) {
+      console.error(`[PDF-Signing] Failed to share signed vault back to owner:`, shareError.message);
+      // Don't fail the request - vault is created, sharing can be retried
+    }
 
     res.json({
       success: true,
