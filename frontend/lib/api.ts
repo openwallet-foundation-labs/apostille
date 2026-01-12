@@ -997,6 +997,14 @@ export const pdfSigningApi = {
   },
 
   /**
+   * Get all signing sessions (DIDComm protocol sessions)
+   * Returns sessions with state tracking for PDF signing workflow
+   */
+  getSessions: async () => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/pdf-signing/sessions`);
+  },
+
+  /**
    * Upload an already-signed PDF (client-side signing)
    * The PDF is signed in the browser and uploaded to replace the unsigned version
    */

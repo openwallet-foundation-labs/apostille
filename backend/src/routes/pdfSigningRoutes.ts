@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getAgent } from '../services/agentService';
 import { PdfUtils, SignaturePlaceholderOptions } from '@ajna-inc/signing';
 import multer from 'multer';
+import * as crypto from 'crypto';
 
 // KEM keypair tag (must match connectionRoutes.ts and agentService.ts)
 const KEM_KEYPAIR_TAG = 'kem-keypair-connection';
@@ -179,6 +180,33 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       // Don't fail the upload if sharing fails - vault is still created
     }
 
+    // Create a signing session using the DIDComm Signing Protocol
+    // This enables automatic status tracking and notifications
+    let signingSessionId: string | undefined;
+    try {
+      const pdfDigest = crypto.createHash('sha256').update(pdfBytes).digest('base64url');
+
+      const signingSession = await agent.modules.signing.requestSigning(recipientConnectionId, {
+        object: {
+          id: result.vaultId,  // Use vaultId as object.id for linkage
+          mediaType: 'application/pdf',
+          canonicalization: { method: 'raw-bytes@1', parameters: {} },
+          digest: { alg: 'sha-256', value: pdfDigest },
+          displayHints: { title: file.originalname }
+        },
+        suite: {
+          suite: 'pkcs7-detached@1',
+          keyBinding: { controller: 'self', proofPurpose: 'assertionMethod' }
+        }
+      });
+
+      signingSessionId = signingSession.id;
+      console.log(`[PDF-Signing] Created signing session ${signingSession.id} for vault ${result.vaultId}`);
+    } catch (signingError: any) {
+      console.error(`[PDF-Signing] Failed to create signing session:`, signingError.message);
+      // Don't fail the upload - vault sharing still works without protocol
+    }
+
     res.json({
       success: true,
       vault: {
@@ -187,6 +215,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
         filename: file.originalname,
         size: file.size,
         recipientConnectionId,
+        signingSessionId,
       },
     });
   } catch (error: any) {
@@ -498,6 +527,32 @@ router.post('/upload-signed/:vaultId', upload.single('file'), async (req: Reques
       // Don't fail the request - vault is created, sharing can be retried
     }
 
+    // Send PartialSignatureMessage via signing protocol to notify the owner
+    // This updates the session state and triggers automatic notification
+    try {
+      // Find the signing session for the original vault
+      const sessions = await agent.modules.signing.findAllByQuery({
+        state: 'request-received'  // Sessions waiting for signature
+      });
+
+      const session = sessions.find((s: any) => s.object?.id === vaultId);
+
+      if (session) {
+        // Send signature message - this notifies the owner!
+        await agent.modules.signing.sign(session.id, {
+          objectId: session.object.id,
+          keyId: 'self'  // Will use agent's default key
+        });
+
+        console.log(`[PDF-Signing] Sent signature for session ${session.id}, vault ${vaultId}`);
+      } else {
+        console.log(`[PDF-Signing] No signing session found for vault ${vaultId} - owner may not get notification`);
+      }
+    } catch (signingError: any) {
+      console.error(`[PDF-Signing] Failed to send signature message:`, signingError.message);
+      // Don't fail the request - vault sharing still worked
+    }
+
     res.json({
       success: true,
       signedVault: {
@@ -681,6 +736,48 @@ router.post('/verify/:vaultId', async (req: Request, res: Response) => {
 });
 
 /**
+ * Get all PDF signing sessions
+ * GET /api/pdf-signing/sessions
+ *
+ * Returns signing protocol sessions filtered to PDF documents.
+ * Sessions track the DIDComm signing workflow state.
+ */
+router.get('/sessions', async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = (req as any).user;
+    const agent = await getAgent({ tenantId });
+
+    const sessions = await agent.modules.signing.getAll();
+
+    // Filter to PDF sessions (mediaType or fall back to all)
+    const pdfSessions = sessions.filter((s: any) =>
+      s.object?.mediaType === 'application/pdf' || !s.object?.mediaType
+    );
+
+    res.json({
+      success: true,
+      sessions: pdfSessions.map((s: any) => ({
+        sessionId: s.id,
+        state: s.state,
+        role: s.role,
+        vaultId: s.object?.id,
+        connectionId: s.connectionId,
+        mediaType: s.object?.mediaType,
+        title: s.object?.displayHints?.title,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+      })),
+    });
+  } catch (error: any) {
+    console.error('Error getting signing sessions:', error);
+    res.status(500).json({
+      error: 'Failed to get signing sessions',
+      message: error.message,
+    });
+  }
+});
+
+/**
  * Get PDF signing workflow status
  * GET /api/pdf-signing/status
  *
@@ -697,6 +794,35 @@ router.get('/status', async (req: Request, res: Response) => {
   try {
     const { tenantId } = (req as any).user;
     const agent = await getAgent({ tenantId });
+
+    // Get all signing sessions and build a map by vaultId (object.id)
+    let sessionMap = new Map<string, any>();
+    try {
+      const sessions = await agent.modules.signing.getAll();
+      sessionMap = new Map(
+        sessions
+          .filter((s: any) => s.object?.id)
+          .map((s: any) => [s.object.id, s])
+      );
+      console.log('[PDF-Signing] Found signing sessions:', sessions.length);
+    } catch (sessionError: any) {
+      console.log('[PDF-Signing] Could not fetch signing sessions:', sessionError.message);
+    }
+
+    // Helper to determine signing state from session
+    const getSessionSigningState = (vaultId: string): 'signed' | 'awaiting' | null => {
+      const session = sessionMap.get(vaultId);
+      if (session) {
+        // partial-signature-received or completed means signed!
+        if (session.state === 'partial-signature-received' || session.state === 'completed') {
+          return 'signed';
+        }
+        if (session.state === 'request-sent' || session.state === 'request-received') {
+          return 'awaiting';
+        }
+      }
+      return null; // No session or unknown state - fallback to vault metadata
+    };
 
     // Get all user's connections to determine role
     const connections = await agent.connections.getAll();
@@ -739,44 +865,70 @@ router.get('/status', async (req: Request, res: Response) => {
 
     console.log('[PDF-Signing] Owned vaults:', ownedVaults.length, 'Received vaults:', receivedVaults.length);
 
-    // Owner's view - with auto-share, all owned vaults go directly to awaiting signature
+    // Owner's view - use session state to determine if signed
     const pendingToShare: any[] = []; // Empty - we auto-share now
     const awaitingSignature = ownedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
-      return !meta?.returnedAt; // All owned vaults not returned are awaiting signature
+      const sessionState = getSessionSigningState(v.vaultId);
+      // If session says signed, it's not awaiting
+      if (sessionState === 'signed') return false;
+      // If explicitly returned, it's completed
+      if (meta?.returnedAt) return false;
+      return true;
     });
 
-    // Signer's view
+    // Signed vaults - determined by session state (owner sees these as completed signing)
+    const signedVaults = ownedVaults.filter((v: any) => {
+      const sessionState = getSessionSigningState(v.vaultId);
+      const meta = v.header?.metadata;
+      return sessionState === 'signed' && !meta?.returnedAt;
+    });
+
+    // Signer's view - use session state
     const toSign = receivedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
-      return !meta?.isSigned;
+      const sessionState = getSessionSigningState(v.vaultId);
+      // Session says signed → not to sign
+      if (sessionState === 'signed') return false;
+      // Vault metadata says signed → not to sign
+      if (meta?.isSigned) return false;
+      return true;
     });
     const signedToReturn = receivedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
-      return meta?.isSigned && !meta?.returnedAt;
+      const sessionState = getSessionSigningState(v.vaultId);
+      // Session state or metadata indicates signed, and not returned yet
+      return (sessionState === 'signed' || meta?.isSigned) && !meta?.returnedAt;
     });
 
-    // Completed (both roles)
+    // Completed (both roles) - explicitly returned
     const completed = pdfVaults.filter((v: any) => {
       const meta = v.header?.metadata;
       return meta?.returnedAt;
     });
 
-    // Helper to map vault to response format
-    const mapVault = (v: any, detectedRole?: string) => ({
-      vaultId: v.vaultId,
-      filename: v.header?.metadata?.filename,
-      description: v.header?.metadata?.description,
-      role: v.header?.metadata?.role || detectedRole,
-      status: v.header?.metadata?.status,
-      signerConnectionId: v.header?.metadata?.signerConnectionId,
-      ownerConnectionId: v.header?.metadata?.ownerConnectionId,
-      isSigned: v.header?.metadata?.isSigned,
-      signedAt: v.header?.metadata?.signedAt,
-      sharedAt: v.header?.metadata?.sharedAt,
-      returnedAt: v.header?.metadata?.returnedAt,
-      createdAt: v.header?.metadata?.createdAt || v.createdAt,
-    });
+    // Helper to map vault to response format with session state
+    const mapVault = (v: any, detectedRole?: string) => {
+      const session = sessionMap.get(v.vaultId);
+      const sessionState = getSessionSigningState(v.vaultId);
+      return {
+        vaultId: v.vaultId,
+        filename: v.header?.metadata?.filename,
+        description: v.header?.metadata?.description,
+        role: v.header?.metadata?.role || detectedRole,
+        status: v.header?.metadata?.status,
+        signerConnectionId: v.header?.metadata?.signerConnectionId,
+        ownerConnectionId: v.header?.metadata?.ownerConnectionId,
+        isSigned: sessionState === 'signed' || v.header?.metadata?.isSigned,
+        signedAt: v.header?.metadata?.signedAt,
+        sharedAt: v.header?.metadata?.sharedAt,
+        returnedAt: v.header?.metadata?.returnedAt,
+        createdAt: v.header?.metadata?.createdAt || v.createdAt,
+        // Session info for debugging/UI
+        sessionState: session?.state,
+        sessionRole: session?.role,
+      };
+    };
 
     res.json({
       success: true,
@@ -785,6 +937,7 @@ router.get('/status', async (req: Request, res: Response) => {
         // Owner stats
         pendingToShare: pendingToShare.length,
         awaitingSignature: awaitingSignature.length,
+        signed: signedVaults.length,  // New: vaults with confirmed signatures
         // Signer stats
         toSign: toSign.length,
         signedToReturn: signedToReturn.length,
@@ -795,6 +948,7 @@ router.get('/status', async (req: Request, res: Response) => {
         // Owner's view
         pendingToShare: pendingToShare.map(v => mapVault(v, 'owner')),
         awaitingSignature: awaitingSignature.map(v => mapVault(v, 'owner')),
+        signed: signedVaults.map(v => mapVault(v, 'owner')),  // Confirmed signed (via session)
         // Signer's view
         toSign: toSign.map(v => mapVault(v, 'signer')),
         signedToReturn: signedToReturn.map(v => mapVault(v, 'signer')),

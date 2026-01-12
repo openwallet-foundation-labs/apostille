@@ -37,6 +37,7 @@ interface SigningStatus {
   // Owner stats
   pendingToShare: number;
   awaitingSignature: number;
+  signed: number;  // New: confirmed signed via session protocol
   // Signer stats
   toSign: number;
   signedToReturn: number;
@@ -49,6 +50,7 @@ export default function PdfSigningPage() {
   // Owner's vaults
   const [pendingToShareVaults, setPendingToShareVaults] = useState<PdfVault[]>([]);
   const [awaitingSignatureVaults, setAwaitingSignatureVaults] = useState<PdfVault[]>([]);
+  const [signedVaults, setSignedVaults] = useState<PdfVault[]>([]);  // Confirmed signed via protocol
   // Signer's vaults
   const [toSignVaults, setToSignVaults] = useState<PdfVault[]>([]);
   const [signedToReturnVaults, setSignedToReturnVaults] = useState<PdfVault[]>([]);
@@ -144,6 +146,7 @@ export default function PdfSigningPage() {
         // Owner's vaults
         setPendingToShareVaults(statusRes.vaults?.pendingToShare || []);
         setAwaitingSignatureVaults(statusRes.vaults?.awaitingSignature || []);
+        setSignedVaults(statusRes.vaults?.signed || []);  // Confirmed signed via protocol
         // Signer's vaults
         setToSignVaults(statusRes.vaults?.toSign || []);
         setSignedToReturnVaults(statusRes.vaults?.signedToReturn || []);
@@ -551,7 +554,7 @@ export default function PdfSigningPage() {
 
       {/* Status Cards */}
       {status && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
           <div className="card p-4">
             <div className="text-2xl font-bold text-text-primary">{status.total}</div>
             <div className="text-sm text-text-secondary">Total PDFs</div>
@@ -563,7 +566,12 @@ export default function PdfSigningPage() {
           </div>
           <div className="card p-4 border-l-4 border-l-blue-500">
             <div className="text-2xl font-bold text-blue-600">{status.awaitingSignature}</div>
-            <div className="text-sm text-text-secondary">Awaiting Signature</div>
+            <div className="text-sm text-text-secondary">Awaiting</div>
+            <div className="text-xs text-text-tertiary">Owner</div>
+          </div>
+          <div className="card p-4 border-l-4 border-l-green-500">
+            <div className="text-2xl font-bold text-green-600">{status.signed || 0}</div>
+            <div className="text-sm text-text-secondary">Signed</div>
             <div className="text-xs text-text-tertiary">Owner</div>
           </div>
           <div className="card p-4 border-l-4 border-l-orange-500">
@@ -664,6 +672,52 @@ export default function PdfSigningPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedVault(vault);
+                      setShowDownloadModal(true);
+                    }}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    Download
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Signed Documents (Owner) - Confirmed signed via protocol */}
+      <div className="card">
+        <div className="px-6 py-4 border-b border-border-primary flex items-center gap-2">
+          <span className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded">Owner</span>
+          <h2 className="text-lg font-semibold text-text-primary">Signed Documents</h2>
+        </div>
+        {signedVaults.length === 0 ? (
+          <div className="px-6 py-8 text-center text-text-secondary">
+            No signed documents yet
+          </div>
+        ) : (
+          <div className="divide-y divide-border-secondary">
+            {signedVaults.map((vault) => (
+              <div key={vault.vaultId} className="px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <svg className="h-8 w-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <div className="font-medium text-text-primary">{vault.filename || 'Unnamed PDF'}</div>
+                    <div className="text-xs text-text-tertiary">
+                      {vault.description && <span>{vault.description} • </span>}
+                      Signed: {vault.signedAt ? new Date(vault.signedAt).toLocaleDateString() : 'Recently'}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <span className="px-2 py-1 text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded">
+                    Signature Confirmed
+                  </span>
                   <button
                     onClick={() => {
                       setSelectedVault(vault);
