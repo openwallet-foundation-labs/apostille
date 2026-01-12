@@ -6,7 +6,7 @@ const DIGILOCKER_BASE_URL =
   process.env.DIGILOCKER_BASE_URL || 'https://digilocker.meripehchaan.gov.in/public';
 const apiBaseUrl = process.env.API_URL || process.env.PUBLIC_URL || 'http://localhost:3002'
 const DIGILOCKER_REDIRECT_URI =
-  process.env.DIGILOCKER_REDIRECT_URI || `${apiBaseUrl}/api/digilocker/callback`;
+  process.env.DIGILOCKER_REDIRECT_URI || `${apiBaseUrl}/api/digilocker/callback/v2`;
 const DIGILOCKER_CLIENT_ID = process.env.DIGILOCKER_CLIENT_ID;
 const DIGILOCKER_CLIENT_SECRET = process.env.DIGILOCKER_CLIENT_SECRET;
 
@@ -22,12 +22,16 @@ router.get('/authorize', (req: Request, res: Response) => {
 
   const state = (req.query.state as string | undefined) || '';
   const scope = (req.query.scope as string | undefined) || 'openid';
+  const acr = req.query.acr as string | undefined;
+  const reqDoctype = req.query.req_doctype as string | undefined;
 
   const authUrl = new URL(`${DIGILOCKER_BASE_URL}/oauth2/1/authorize`);
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('client_id', DIGILOCKER_CLIENT_ID);
   authUrl.searchParams.set('redirect_uri', DIGILOCKER_REDIRECT_URI);
   authUrl.searchParams.set('scope', scope);
+  if (acr) authUrl.searchParams.set('acr', acr);
+  if (reqDoctype) authUrl.searchParams.set('req_doctype', reqDoctype);
   if (state) authUrl.searchParams.set('state', state);
 
   // Pass through optional PKCE inputs if provided by the caller
@@ -94,15 +98,50 @@ function parseEaadhaarXml(xml: string) {
   };
 }
 
+async function fetchIssuedDocument(accessToken: string, requestedDoctype: string) {
+  const issuedRes = await fetch(`${DIGILOCKER_BASE_URL}/oauth2/2/files/issued`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const issuedJson = await issuedRes.json().catch(async () => ({ raw: await issuedRes.text() }));
+  if (!issuedRes.ok) {
+    return {
+      error: 'Failed to list issued documents',
+      status: issuedRes.status,
+      details: issuedJson,
+    };
+  }
+
+  const items: any[] = Array.isArray(issuedJson?.items) ? issuedJson.items : [];
+  const selected = items.find((i) => i?.doctype === requestedDoctype);
+
+  return { items, selected };
+}
+
+async function fetchDocumentXml(accessToken: string, uri: string) {
+  const res = await fetch(`${DIGILOCKER_BASE_URL}/oauth2/1/xml/${encodeURIComponent(uri)}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const hmac = res.headers.get('hmac') || res.headers.get('x-digilocker-hmac');
+  const bodyText = await res.text();
+  if (!res.ok) {
+    return { error: 'Failed to fetch document XML', status: res.status, details: bodyText, hmac };
+  }
+  return { xml: bodyText, hmac };
+}
+
 async function handleCallback(req: Request, res: Response) {
   try {
-    console.log('[digilocker] /callback hit with query/body:', { query: req.query, body: req.body });
+    console.log('[digilocker] /callback/v2 hit with query/body:', { query: req.query, body: req.body });
     const code =
       (req.query.code as string | undefined) ||
       (typeof req.body?.code === 'string' ? (req.body.code as string) : undefined);
     const state =
       (req.query.state as string | undefined) ||
       (typeof req.body?.state === 'string' ? (req.body.state as string) : undefined);
+    const requestedDoctype =
+      (req.query.req_doctype as string | undefined) ||
+      (typeof req.body?.req_doctype === 'string' ? (req.body.req_doctype as string) : undefined);
     const error =
       (req.query.error as string | undefined) ||
       (typeof req.body?.error === 'string' ? (req.body.error as string) : undefined);
@@ -191,9 +230,28 @@ async function handleCallback(req: Request, res: Response) {
       }
     }
 
-    // Fetch eAadhaar XML (demographics/address) if access token is available
+    // If a specific doctype is requested (PAN/DL/etc.), fetch that doc; otherwise fetch eAadhaar
     let eaadhaar: any = null;
-    if (accessToken) {
+    let doc: any = null;
+    if (accessToken && requestedDoctype) {
+      console.log('[digilocker] Fetching issued document for doctype:', requestedDoctype);
+      const issued = await fetchIssuedDocument(accessToken, requestedDoctype);
+      if (!issued.selected) {
+        doc = {
+          error: 'No matching document found for requested doctype',
+          status: issued?.status,
+          details: issued?.details,
+          items: issued.items,
+        };
+      } else {
+        const docXml = await fetchDocumentXml(accessToken, issued.selected.uri);
+        doc = {
+          selected: issued.selected,
+          items: issued.items,
+          ...docXml,
+        };
+      }
+    } else if (accessToken) {
       console.log('[digilocker] Fetching eAadhaar XML');
       const eaRes = await fetch(`${DIGILOCKER_BASE_URL}/oauth2/3/xml/eaadhaar`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -221,6 +279,7 @@ async function handleCallback(req: Request, res: Response) {
       success: true,
       token: tokenJson,
       user,
+      doc,
       eaadhaar,
       state,
     });
@@ -233,7 +292,7 @@ async function handleCallback(req: Request, res: Response) {
   }
 }
 
-router.get('/callback', handleCallback);
-router.post('/callback', handleCallback);
+router.get('/callback/v2', handleCallback);
+router.post('/callback/v2', handleCallback);
 
 export default router;
