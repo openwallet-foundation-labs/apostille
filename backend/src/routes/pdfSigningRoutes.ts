@@ -51,11 +51,13 @@ async function findMatchingKemKey(agent: any, vaultInfo: any): Promise<{ secretK
   for (const keypair of allKeypairs) {
     const kid = keypair.content.kid as string;
     if (recipientKids.has(kid)) {
-      console.log(`[PDF-Signing] Found matching KEM key: ${kid} for connection ${keypair.tags?.connectionId}`);
+      // connectionId can be in tags or content
+      const connectionId = (keypair.tags?.connectionId || keypair.content.connectionId) as string;
+      console.log(`[PDF-Signing] Found matching KEM key: ${kid} for connection ${connectionId}`);
       return {
         kid,
         secretKey: new Uint8Array(Buffer.from(keypair.content.secretKey as string, 'base64url')),
-        connectionId: keypair.tags?.connectionId as string,
+        connectionId,
       };
     }
   }
