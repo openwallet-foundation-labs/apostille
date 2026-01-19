@@ -5,7 +5,7 @@ import cors from 'cors';
 import type { CorsOptions } from 'cors';
 import dotenv from 'dotenv';
 import { initializeAgentSystem } from './services/agentService';
-import { userTable, passwordResetTokensTable, initializeCredentialDesignerTables, initializeOid4vcTables } from './db/schema';
+import { userTable, passwordResetTokensTable, initializeCredentialDesignerTables, initializeOid4vcTables, initializeInstitutionalTables } from './db/schema';
 import agentRoutes from './routes/agentRoutes';
 import connectionRoutes from './routes/connectionRoutes';
 import credentialRoutes from './routes/credentialRoutes';
@@ -29,7 +29,8 @@ import { createSocketGateway } from './services/socketGateway';
 import wellKnownRoutes, { createIssuerRoutes } from './routes/wellKnownRoutes';
 import openBadgesRoutes from './routes/openBadgesRoutes';
 import credentialDesignerRoutes from './routes/credentialDesignerRoutes';
-import digilockerRoutes from './routes/digilockerRoutes';
+import institutionalRoutes from './routes/institutionalRoutes';
+import { setupESSIDefaultAgent } from './services/credentials/ESSIAgentSetup';
 import oid4vciRoutes from './routes/oid4vciRoutes';
 import oid4vpRoutes from './routes/oid4vpRoutes';
 import { initializeRedis, closeRedis } from './services/redis/redisClient';
@@ -154,7 +155,7 @@ app.use('/issuers', createIssuerRoutes());
 
 // Public routes
 app.use('/api/auth', authRoutes);
-app.use('/api/digilocker', digilockerRoutes);
+app.use('/api/institutional', institutionalRoutes); // Institutional credential issuance (public for OAuth callbacks)
 
 // Protected routes with auth middleware
 app.use('/api/agent', auth);
@@ -314,6 +315,7 @@ const startServer = async () => {
       await passwordResetTokensTable();
       await initializeCredentialDesignerTables();
       await initializeOid4vcTables();
+      await initializeInstitutionalTables();
       console.log('Database tables initialized successfully');
     } catch (dbError) {
       console.error('Failed to initialize database tables:', dbError);
@@ -340,6 +342,16 @@ const startServer = async () => {
     try {
       await initializeAgentSystem();
       console.log('Agent system initialized successfully');
+
+      // Initialize ESSI default agent for institutional credential issuance
+      console.log('Initializing ESSI default agent...');
+      try {
+        await setupESSIDefaultAgent();
+        console.log('ESSI default agent initialized successfully');
+      } catch (essiError) {
+        console.error('Failed to initialize ESSI default agent:', essiError);
+        console.log('Server is running but ESSI institutional issuance is not available');
+      }
     } catch (agentError) {
       console.error('Failed to initialize agent system:', agentError);
       console.log('Server is running but agent system is not available');

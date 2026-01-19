@@ -455,3 +455,241 @@ export async function initializeOid4vcTables() {
     await migrateMdocColumns() // Run migration for existing tables
     console.log("✅ OID4VC tables initialized.")
 }
+
+// ============================================
+// Institutional Credential Issuance Types
+// ============================================
+
+export type InstitutionalAgentSchema = {
+    id: string;
+    name: string;
+    wallet_id: string;
+    wallet_key: string;
+    did: string | null;
+    is_default: boolean;
+    is_active: boolean;
+    created_at: Date;
+    updated_at: Date;
+}
+
+export type CredentialProviderSchema = {
+    id: string;
+    provider_id: string;  // 'digilocker', 'aadhaar_offline', etc.
+    name: string;
+    type: 'oauth' | 'file_upload' | 'api';
+    config: Record<string, unknown> | null;
+    is_active: boolean;
+    created_at: Date;
+}
+
+export type InstitutionalCredentialTypeSchema = {
+    id: string;
+    provider_id: string;
+    agent_id: string;
+    credential_type: string;  // 'aadhaar', 'pan', 'driving_license'
+    schema_id: string | null;
+    credential_definition_id: string | null;
+    attribute_mapping: Record<string, unknown> | null;
+    is_active: boolean;
+    created_at: Date;
+}
+
+export type IssuanceSessionSchema = {
+    id: string;
+    out_of_band_id: string;
+    csrf_token: string;
+    provider_id: string;
+    credential_type: string | null;
+    status: 'pending' | 'verified' | 'issued' | 'failed';
+    provider_data: Record<string, unknown> | null;
+    connection_id: string | null;
+    credential_exchange_id: string | null;
+    created_at: Date;
+    expires_at: Date | null;
+    issued_at: Date | null;
+}
+
+/**
+ * Create institutional agents table
+ * Stores ESSI default agent and other institutional issuers
+ */
+export async function institutionalAgentsTable() {
+    const client = await db.connect()
+    try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS institutional_agents (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name VARCHAR(255) UNIQUE NOT NULL,
+                wallet_id VARCHAR(255) NOT NULL,
+                wallet_key VARCHAR(255) NOT NULL,
+                did VARCHAR(255),
+                is_default BOOLEAN DEFAULT FALSE,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `)
+
+        // Create indexes
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_institutional_agents_is_default
+            ON institutional_agents(is_default)
+        `)
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_institutional_agents_is_active
+            ON institutional_agents(is_active)
+        `)
+
+        console.log("✅ Institutional agents table created or already exists.")
+    } catch (error: any) {
+        console.log(error)
+        console.error("❌ Error creating institutional agents table:", error.message)
+    } finally {
+        client.release()
+    }
+}
+
+/**
+ * Create credential providers table
+ * Stores different credential providers (Digilocker, Aadhaar, etc.)
+ */
+export async function credentialProvidersTable() {
+    const client = await db.connect()
+    try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS credential_providers (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                provider_id VARCHAR(100) UNIQUE NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                type VARCHAR(50) NOT NULL,
+                config JSONB,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `)
+
+        // Create indexes
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_credential_providers_provider_id
+            ON credential_providers(provider_id)
+        `)
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_credential_providers_is_active
+            ON credential_providers(is_active)
+        `)
+
+        console.log("✅ Credential providers table created or already exists.")
+    } catch (error: any) {
+        console.log(error)
+        console.error("❌ Error creating credential providers table:", error.message)
+    } finally {
+        client.release()
+    }
+}
+
+/**
+ * Create institutional credential types table
+ * Maps credential providers to their schema/cred-def configurations
+ */
+export async function institutionalCredentialTypesTable() {
+    const client = await db.connect()
+    try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS institutional_credential_types (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                provider_id VARCHAR(100) NOT NULL,
+                agent_id UUID NOT NULL REFERENCES institutional_agents(id) ON DELETE CASCADE,
+                credential_type VARCHAR(100) NOT NULL,
+                schema_id VARCHAR(255),
+                credential_definition_id VARCHAR(255),
+                attribute_mapping JSONB,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(provider_id, credential_type)
+            )
+        `)
+
+        // Create indexes
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_inst_cred_types_provider_id
+            ON institutional_credential_types(provider_id)
+        `)
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_inst_cred_types_agent_id
+            ON institutional_credential_types(agent_id)
+        `)
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_inst_cred_types_cred_type
+            ON institutional_credential_types(credential_type)
+        `)
+
+        console.log("✅ Institutional credential types table created or already exists.")
+    } catch (error: any) {
+        console.log(error)
+        console.error("❌ Error creating institutional credential types table:", error.message)
+    } finally {
+        client.release()
+    }
+}
+
+/**
+ * Create issuance sessions table
+ * Tracks pending credential issuances with oobId and csrf tokens
+ */
+export async function issuanceSessionsTable() {
+    const client = await db.connect()
+    try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS issuance_sessions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                out_of_band_id VARCHAR(255) NOT NULL,
+                csrf_token VARCHAR(255) NOT NULL,
+                provider_id VARCHAR(100) NOT NULL,
+                credential_type VARCHAR(100),
+                status VARCHAR(50) DEFAULT 'pending',
+                provider_data JSONB,
+                connection_id VARCHAR(255),
+                credential_exchange_id VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP,
+                issued_at TIMESTAMP
+            )
+        `)
+
+        // Create indexes
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_issuance_sessions_oob_id
+            ON issuance_sessions(out_of_band_id)
+        `)
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_issuance_sessions_csrf_token
+            ON issuance_sessions(csrf_token)
+        `)
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_issuance_sessions_provider_id
+            ON issuance_sessions(provider_id)
+        `)
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_issuance_sessions_status
+            ON issuance_sessions(status)
+        `)
+
+        console.log("✅ Issuance sessions table created or already exists.")
+    } catch (error: any) {
+        console.log(error)
+        console.error("❌ Error creating issuance sessions table:", error.message)
+    } finally {
+        client.release()
+    }
+}
+
+/**
+ * Initialize all institutional credential issuance tables
+ */
+export async function initializeInstitutionalTables() {
+    await institutionalAgentsTable()
+    await credentialProvidersTable()
+    await institutionalCredentialTypesTable()
+    await issuanceSessionsTable()
+    console.log("✅ Institutional credential issuance tables initialized.")
+}

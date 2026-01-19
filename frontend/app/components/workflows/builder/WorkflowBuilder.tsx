@@ -15,8 +15,6 @@ interface WorkflowBuilderProps {
 
 export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: WorkflowBuilderProps) {
   const {
-    selectedTab,
-    setSelectedTab,
     template,
     setTemplateFromJson,
     getTemplateJson,
@@ -28,6 +26,7 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
   const [jsonText, setJsonText] = useState('')
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
+  const [isJsonModalOpen, setIsJsonModalOpen] = useState(false)
 
   // Initialize from props
   useEffect(() => {
@@ -41,12 +40,22 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
 
   // Sync JSON text when template changes (from visual editor)
   useEffect(() => {
-    if (selectedTab === 'visual') {
-      const json = getTemplateJson()
-      setJsonText(json)
-      onJsonChange?.(json)
-    }
-  }, [template, selectedTab, getTemplateJson, onJsonChange])
+    const json = getTemplateJson()
+    setJsonText(json)
+    onJsonChange?.(json)
+  }, [template, getTemplateJson, onJsonChange])
+
+  // Open JSON modal and sync content
+  const openJsonModal = useCallback(() => {
+    const json = getTemplateJson()
+    setJsonText(json)
+    setJsonError(null)
+    setIsJsonModalOpen(true)
+  }, [getTemplateJson])
+
+  const closeJsonModal = useCallback(() => {
+    setIsJsonModalOpen(false)
+  }, [])
 
   // Fetch credential definitions and schemas
   useEffect(() => {
@@ -101,6 +110,7 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
     if (success) {
       setJsonError(null)
       onJsonChange?.(jsonText)
+      setIsJsonModalOpen(false)
     } else {
       setJsonError('Invalid workflow template')
     }
@@ -125,40 +135,28 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tabs */}
-      <div className="flex items-center justify-between border-b border-border-secondary bg-surface-800 px-4">
-        <div className="flex">
-          <button
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              selectedTab === 'visual'
-                ? 'text-blue-400 border-b-2 border-blue-400'
-                : 'text-text-tertiary hover:text-text-secondary'
-            }`}
-            onClick={() => setSelectedTab('visual')}
-          >
-            Visual Builder
-          </button>
-          <button
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              selectedTab === 'json'
-                ? 'text-blue-400 border-b-2 border-blue-400'
-                : 'text-text-tertiary hover:text-text-secondary'
-            }`}
-            onClick={() => setSelectedTab('json')}
-          >
-            JSON Editor
-          </button>
+      {/* Toolbar */}
+      <div className="flex items-center justify-between border-b border-border-secondary bg-surface-100 px-4 py-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-text-secondary">Visual Builder</span>
         </div>
 
         <div className="flex items-center gap-2">
-          {selectedTab === 'visual' && (
-            <button
-              onClick={handleAutoLayout}
-              className="px-3 py-1 text-xs bg-surface-700 hover:bg-surface-600 text-text-secondary rounded transition-colors"
-            >
-              Auto Layout
-            </button>
-          )}
+          <button
+            onClick={openJsonModal}
+            className="px-3 py-1 text-xs bg-surface-200 hover:bg-surface-300 text-text-secondary rounded transition-colors flex items-center gap-1"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            </svg>
+            JSON
+          </button>
+          <button
+            onClick={handleAutoLayout}
+            className="px-3 py-1 text-xs bg-surface-200 hover:bg-surface-300 text-text-secondary rounded transition-colors"
+          >
+            Auto Layout
+          </button>
           {onPublish && (
             <button
               onClick={handlePublish}
@@ -171,45 +169,69 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
         </div>
       </div>
 
-      {/* Content */}
-      {selectedTab === 'visual' ? (
-        <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar */}
-          <BuilderSidebar />
-
-          {/* Canvas */}
-          <div className="flex-1 relative">
-            <BuilderCanvas />
-          </div>
-
-          {/* Properties Panel */}
-          <PropertiesPanel />
+      {/* Visual Builder Content */}
+      <div className="flex flex-1 overflow-hidden">
+        <BuilderSidebar />
+        <div className="flex-1 relative">
+          <BuilderCanvas />
         </div>
-      ) : (
-        <div className="flex-1 flex flex-col p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-text-tertiary">
-              Edit the workflow template JSON directly
-            </span>
-            <div className="flex items-center gap-2">
-              {jsonError && (
-                <span className="text-xs text-red-400">{jsonError}</span>
-              )}
-              <button
-                onClick={handleApplyJson}
-                disabled={!!jsonError}
-                className="px-3 py-1 text-xs bg-green-600 hover:bg-green-500 text-white rounded transition-colors disabled:opacity-50"
-              >
-                Apply Changes
-              </button>
+        <PropertiesPanel />
+      </div>
+
+      {/* JSON Editor Modal */}
+      {isJsonModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={closeJsonModal}
+          />
+
+          {/* Modal */}
+          <div className="relative w-full max-w-4xl max-h-[85vh] mx-4 bg-surface-50 rounded-xl shadow-2xl border border-border-secondary flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border-secondary bg-surface-100">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                </svg>
+                <span className="text-sm font-medium text-text-primary">JSON Editor</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {jsonError && (
+                  <span className="text-xs text-red-500 bg-red-100 dark:bg-red-900/30 px-2 py-1 rounded">
+                    {jsonError}
+                  </span>
+                )}
+                <button
+                  onClick={handleApplyJson}
+                  disabled={!!jsonError}
+                  className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-500 text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Apply Changes
+                </button>
+                <button
+                  onClick={closeJsonModal}
+                  className="p-1.5 text-text-tertiary hover:text-text-primary hover:bg-surface-200 rounded transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 p-4 overflow-hidden">
+              <textarea
+                value={jsonText}
+                onChange={(e) => handleJsonChange(e.target.value)}
+                className="w-full h-full font-mono text-sm bg-surface-100 text-text-primary border border-border-secondary rounded-lg p-4 resize-none focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                spellCheck={false}
+                placeholder="Workflow template JSON..."
+              />
             </div>
           </div>
-          <textarea
-            value={jsonText}
-            onChange={(e) => handleJsonChange(e.target.value)}
-            className="flex-1 w-full font-mono text-sm bg-surface-900 text-text-primary border border-border-secondary rounded p-4 resize-none focus:outline-none focus:border-blue-500"
-            spellCheck={false}
-          />
         </div>
       )}
     </div>
