@@ -63,7 +63,7 @@ export default function CredentialDesignerPage() {
         oca_meta: selectedPreset?.oca_meta,
       });
 
-      router.push(`/credential-designer/${result.template.id}`);
+      router.push(`/dashboard/credential-designer/${result.template.id}`);
     } catch (error) {
       console.error('Failed to create template:', error);
     }
@@ -187,7 +187,7 @@ export default function CredentialDesignerPage() {
                 {/* Actions */}
                 <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border-primary">
                   <button
-                    onClick={() => router.push(`/credential-designer/${template.id}`)}
+                    onClick={() => router.push(`/dashboard/credential-designer/${template.id}`)}
                     className="flex-1 btn btn-secondary text-sm"
                   >
                     Edit
