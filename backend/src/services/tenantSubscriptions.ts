@@ -13,30 +13,55 @@ import { bus, type NotificationPayload } from '../notifications/bus'
 import { WebRTCEvents } from '@ajna-inc/webrtc'
 import { isEnabled } from '../notifications/registry'
 import crypto from 'crypto'
+import { CacheStore } from './redis/cacheStore'
 
 type TenantId = string
 
 type Detach = () => void
 
+// Pod-local ref counting for event listener attachment
+// This is intentionally pod-local as each pod manages its own event listeners
 const refCount: Map<TenantId, number> = new Map()
 const detachMap: Map<TenantId, Detach> = new Map()
 
-// Simple de-duplication for bursty events (e.g., basic messages)
+// Redis-backed de-duplication for bursty events (cross-pod)
+// Uses short TTL to handle events that may be processed on different pods
 const DEDUP_TTL_MS = 2000
-const seenKeys: Map<string, number> = new Map()
-function dedup(key: string): boolean {
+const DEDUP_TTL_SECONDS = Math.ceil(DEDUP_TTL_MS / 1000)
+const dedupCache = new CacheStore<{ timestamp: number }>({
+  prefix: 'event:dedup:',
+  defaultTtlSeconds: DEDUP_TTL_SECONDS + 1, // Slightly longer than dedup window
+})
+
+// Fallback in-memory cache for when Redis is unavailable
+const localSeenKeys: Map<string, number> = new Map()
+
+async function dedup(key: string): Promise<boolean> {
   const now = Date.now()
-  const last = seenKeys.get(key)
-  if (last && now - last < DEDUP_TTL_MS) return true
-  seenKeys.set(key, now)
-  setTimeout(() => {
-    const v = seenKeys.get(key)
-    if (v && Date.now() - v >= DEDUP_TTL_MS) seenKeys.delete(key)
-  }, DEDUP_TTL_MS + 500)
-  return false
+
+  try {
+    // Try Redis-backed dedup first
+    const existing = await dedupCache.get(key)
+    if (existing && now - existing.timestamp < DEDUP_TTL_MS) {
+      return true // Duplicate
+    }
+    // Mark as seen in Redis
+    await dedupCache.set(key, { timestamp: now }, DEDUP_TTL_SECONDS)
+    return false
+  } catch {
+    // Fallback to local dedup if Redis fails
+    const last = localSeenKeys.get(key)
+    if (last && now - last < DEDUP_TTL_MS) return true
+    localSeenKeys.set(key, now)
+    setTimeout(() => {
+      const v = localSeenKeys.get(key)
+      if (v && Date.now() - v >= DEDUP_TTL_MS) localSeenKeys.delete(key)
+    }, DEDUP_TTL_MS + 500)
+    return false
+  }
 }
 
-function emit<T extends BaseEvent>(tenantId: string, e: T) {
+async function emit<T extends BaseEvent>(tenantId: string, e: T) {
   if (!bus.hasActive(tenantId)) {
     try { console.log(`[WS] skip send (no active) type=${(e as any).type} tenant=${tenantId}`) } catch {}
     return
@@ -62,7 +87,7 @@ function emit<T extends BaseEvent>(tenantId: string, e: T) {
       // De-dup by stable message/thread id when possible + direction
       const threadId = rec?.threadId || msg?.['@id']
       const key = threadId || rec?.id || msg?.id
-      if (key && dedup(`${tenantId}:${String(outType)}:${key}`)) {
+      if (key && await dedup(`${tenantId}:${String(outType)}:${key}`)) {
         console.log(`[WS] skip send (dedup ${String(outType)}) tenant=${tenantId} key=${key}`)
         return
       }
@@ -256,45 +281,48 @@ export async function onSocketConnected(tenantId: string, agent: Agent) {
     try { console.log('[WS] AgentMessageReceived', { tenantId, type: (e as any).type }) } catch {}
     if (!acceptForTenant(e)) return
     // Only forward basic messages as AppMessageReceived
-    try {
-      const payload: any = (e as any)?.payload || {}
-      const m: any = payload.message || {}
-      const type = m['@type'] || m.type || ''
-      if (String(type).includes('basicmessage/1.0/message')) {
-        const connId = payload?.connection?.id
-        const threadId = m['@id']
-        const key = `${tenantId}:AppMessageReceived:${threadId || ''}`
-        if (threadId && dedup(key)) {
-          console.log(`[WS] skip send (dedup AppMessageReceived) tenant=${tenantId} key=${threadId}`)
-          return
+    // Use async IIFE to handle dedup
+    (async () => {
+      try {
+        const payload: any = (e as any)?.payload || {}
+        const m: any = payload.message || {}
+        const type = m['@type'] || m.type || ''
+        if (String(type).includes('basicmessage/1.0/message')) {
+          const connId = payload?.connection?.id
+          const threadId = m['@id']
+          const key = `${tenantId}:AppMessageReceived:${threadId || ''}`
+          if (threadId && await dedup(key)) {
+            console.log(`[WS] skip send (dedup AppMessageReceived) tenant=${tenantId} key=${threadId}`)
+            return
+          }
+          const out: NotificationPayload<any> = {
+            v: 1,
+            id: crypto.randomUUID(),
+            type: 'AppMessageReceived' as any,
+            tenantId,
+            createdAt: new Date().toISOString(),
+            data: {
+              id: m.id || threadId,
+              content: m.content,
+              sentTime: m.sent_time,
+              connectionId: connId,
+              threadId,
+              role: 'receiver',
+              direction: 'received',
+              source: 'agent',
+            },
+          }
+          if (isEnabled(tenantId, out.type as any)) {
+            try { console.log(`[WS] send type=${out.type} tenant=${tenantId}`) } catch {}
+            bus.sendSync(tenantId, out)
+          } else {
+            console.log(`[WS] skip send (disabled) type=${out.type} tenant=${tenantId}`)
+          }
         }
-        const out: NotificationPayload<any> = {
-          v: 1,
-          id: crypto.randomUUID(),
-          type: 'AppMessageReceived' as any,
-          tenantId,
-          createdAt: new Date().toISOString(),
-          data: {
-            id: m.id || threadId,
-            content: m.content,
-            sentTime: m.sent_time,
-            connectionId: connId,
-            threadId,
-            role: 'receiver',
-            direction: 'received',
-            source: 'agent',
-          },
-        }
-        if (isEnabled(tenantId, out.type as any)) {
-          try { console.log(`[WS] send type=${out.type} tenant=${tenantId}`) } catch {}
-          bus.sendSync(tenantId, out)
-        } else {
-          console.log(`[WS] skip send (disabled) type=${out.type} tenant=${tenantId}`)
-        }
+      } catch (err) {
+        console.warn('[WS] AgentMessageReceived handling error', (err as Error).message)
       }
-    } catch (err) {
-      console.warn('[WS] AgentMessageReceived handling error', (err as Error).message)
-    }
+    })()
   }
 
   emitter.on(BasicMessageEventTypes.BasicMessageStateChanged, onBasic)

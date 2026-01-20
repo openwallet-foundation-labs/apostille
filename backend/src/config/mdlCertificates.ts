@@ -9,6 +9,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import * as x509 from '@peculiar/x509'
+import { cacheStores } from '../services/redis/cacheStore'
 
 // Set crypto provider for @peculiar/x509
 x509.cryptoProvider.set(crypto.webcrypto as any)
@@ -228,19 +229,31 @@ async function loadCertificatesFromFiles(): Promise<MdocCertificateConfig> {
   }
 }
 
-// Cache for loaded certificates
+// Pod-local cache for loaded certificates (reconstructed from Redis data)
 let cachedConfig: MdocCertificateConfig | null = null
+
+// Interface for Redis-serializable certificate data (without Buffer)
+interface SerializableCertConfig {
+  issuerCertificate: string
+  issuerPrivateKey: string
+  issuerPrivateKeyBase64: string // Buffer serialized as base64
+  iacaCertificate: string
+  algorithm: 'ES256' | 'ES384' | 'ES512'
+}
 
 /**
  * Get the mDL certificate configuration
  *
  * Priority:
- * 1. If MDL_USE_TEST_CERTIFICATES=true → use test certificates
+ * 1. If MDL_USE_TEST_CERTIFICATES=true → use test certificates (shared via Redis)
  * 2. If certificate paths are provided → load from files
  * 3. Otherwise → fall back to test certificates (with warning)
+ *
+ * For multi-pod deployments, test certificates are cached in Redis to ensure
+ * all pods use the same certificates.
  */
 export async function getMdocCertificateConfig(): Promise<MdocCertificateConfig> {
-  // Return cached config if available
+  // Return pod-local cached config if available
   if (cachedConfig) {
     return cachedConfig
   }
@@ -248,19 +261,45 @@ export async function getMdocCertificateConfig(): Promise<MdocCertificateConfig>
   const useTestCerts = process.env.MDL_USE_TEST_CERTIFICATES === 'true'
   const hasConfiguredPaths = hasCertificatePaths()
 
-  if (useTestCerts) {
-    // Explicitly requested test certificates
-    console.log('[MDL] Using test certificates (MDL_USE_TEST_CERTIFICATES=true)')
+  if (useTestCerts || !hasConfiguredPaths) {
+    // Test certificates - try to get from Redis first for cross-pod consistency
+    const cacheKey = 'test-certificates'
+    const cached = await cacheStores.mdlCertificates.get(cacheKey) as SerializableCertConfig | null
+
+    if (cached) {
+      console.log('[MDL] Using cached test certificates from Redis')
+      cachedConfig = {
+        ...cached,
+        issuerPrivateKeyBytes: Buffer.from(cached.issuerPrivateKeyBase64, 'base64')
+      }
+      return cachedConfig
+    }
+
+    // Generate new test certificates
+    if (useTestCerts) {
+      console.log('[MDL] Using test certificates (MDL_USE_TEST_CERTIFICATES=true)')
+    } else {
+      console.log('[MDL] No certificate paths configured, falling back to test certificates')
+      console.log('[MDL] To use production certificates, set MDL_ISSUER_CERT_PATH, MDL_ISSUER_KEY_PATH, and MDL_IACA_CERT_PATH')
+    }
+
     cachedConfig = await generateTestCertificates()
-  } else if (hasConfiguredPaths) {
-    // Production certificates from file paths
+
+    // Cache in Redis for other pods (serialize Buffer to base64)
+    const serializable: SerializableCertConfig = {
+      issuerCertificate: cachedConfig.issuerCertificate,
+      issuerPrivateKey: cachedConfig.issuerPrivateKey,
+      issuerPrivateKeyBase64: cachedConfig.issuerPrivateKeyBytes.toString('base64'),
+      iacaCertificate: cachedConfig.iacaCertificate,
+      algorithm: cachedConfig.algorithm
+    }
+    await cacheStores.mdlCertificates.set(cacheKey, serializable, 86400) // 24 hours
+    console.log('[MDL] Test certificates cached in Redis for cross-pod consistency')
+  } else {
+    // Production certificates from file paths - no need for Redis caching
+    // (files should be the same across pods via ConfigMap/Secret mount)
     console.log('[MDL] Using production certificates from file paths')
     cachedConfig = await loadCertificatesFromFiles()
-  } else {
-    // No paths configured - fall back to test certificates
-    console.log('[MDL] No certificate paths configured, falling back to test certificates')
-    console.log('[MDL] To use production certificates, set MDL_ISSUER_CERT_PATH, MDL_ISSUER_KEY_PATH, and MDL_IACA_CERT_PATH')
-    cachedConfig = await generateTestCertificates()
   }
 
   return cachedConfig
@@ -268,9 +307,11 @@ export async function getMdocCertificateConfig(): Promise<MdocCertificateConfig>
 
 /**
  * Clear the certificate cache (useful for testing)
+ * Clears both pod-local and Redis cache
  */
-export function clearCertificateCache(): void {
+export async function clearCertificateCache(): Promise<void> {
   cachedConfig = null
+  await cacheStores.mdlCertificates.invalidate('test-certificates')
 }
 
 /**

@@ -3,6 +3,13 @@
  *
  * Singleton registry for managing credential providers.
  * Providers register themselves here and can be retrieved by ID.
+ *
+ * Multi-pod note: This uses a pod-local singleton pattern, which is acceptable because:
+ * 1. Providers are registered at startup from environment configuration
+ * 2. All pods register the same providers (determined by environment variables)
+ * 3. Provider configuration is static and doesn't change at runtime
+ * 4. If dynamic provider registration is needed in the future, this should be
+ *    refactored to use database storage with Redis caching.
  */
 
 import { CredentialProvider } from './CredentialProvider';

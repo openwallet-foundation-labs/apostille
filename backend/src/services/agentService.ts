@@ -34,6 +34,7 @@ import { OpenId4VcIssuerModule, OpenId4VcVerifierModule } from '@credo-ts/openid
 import { getMockPoePrograms } from '../poe/MockPoeProgram'
 import { CacheStore } from './redis/cacheStore'
 import { initializeVaultStorage } from './storageService'
+import { isRedisAvailable, getRedisClient } from './redis/redisClient'
 
 dotenv.config();
 
@@ -171,8 +172,20 @@ interface Tenant {
     config: any;
 }
 
+// Pod-local cache for tenant agent instances
+// Note: This is intentionally pod-local. Agent instances cannot be shared across pods,
+// but their state is stored in PostgreSQL (Askar), so each pod getting its own instance is safe.
 const tenantAgentCache: Record<string, Agent<any>> = {};
+
+// Pod-local tracking for started queues (within this pod)
+// The Redis-backed coordination happens in ensureTenantWorkflowQueue
 const startedTenantQueues: Record<string, boolean> = {};
+
+// Redis-backed coordination for workflow queue startup across pods
+const workflowQueueCoordination = new CacheStore<{ podId: string; startedAt: string }>({
+    prefix: 'agent:workflow-queue:',
+    defaultTtlSeconds: 300, // 5 minutes - pods should refresh periodically
+});
 
 async function ensureTenantWorkflowQueue(tenantAgent: Agent<any>, tenantId: string) {
     if (startedTenantQueues[tenantId]) return;

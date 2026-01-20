@@ -15,10 +15,13 @@ import { DigilockerProvider } from './providers/DigilockerProvider';
 import { CredentialProvider, SchemaDefinition } from './CredentialProvider';
 import { getAgent, createTenant, getMainAgent } from '../agentService';
 import { InstitutionalAgentSchema, CredentialProviderSchema } from '../../db/schema';
+import { CacheStore } from '../redis/cacheStore';
 
-// Cache for the ESSI agent
-let essiAgent: Agent<any> | null = null;
-let essiAgentTenantId: string | null = null;
+// Redis-backed cache for ESSI agent tenant ID (shared across pods)
+const essiTenantCache = new CacheStore<{ tenantId: string }>({
+    prefix: 'essi:agent:',
+    defaultTtlSeconds: 3600, // 1 hour
+});
 
 /**
  * Get provider-specific configuration from environment or defaults
@@ -304,7 +307,8 @@ export async function setupESSIDefaultAgent(): Promise<void> {
 
         // Step 3: Ensure Credo tenant exists
         const tenantId = await ensureESSITenant(agentRecord);
-        essiAgentTenantId = tenantId;
+        // Store tenant ID in Redis for cross-pod access
+        await essiTenantCache.set('default', { tenantId });
         console.log('[ESSISetup] ESSI tenant ID:', tenantId);
 
         // Step 4: Ensure providers are in DB
@@ -315,9 +319,9 @@ export async function setupESSIDefaultAgent(): Promise<void> {
 
         // Step 5: Try to get the agent (may fail if not fully initialized)
         // This is deferred to first use to avoid startup race conditions
+        // Note: We don't cache the agent instance - each request gets a fresh one via getAgent()
         try {
             const agent = await getAgent({ tenantId });
-            essiAgent = agent;
             console.log('[ESSISetup] ESSI agent obtained successfully');
 
             // Step 6: Setup credential types (skip if Ethereum not configured)
@@ -357,38 +361,56 @@ export async function setupESSIDefaultAgent(): Promise<void> {
 
 /**
  * Get the ESSI agent instance
+ * Note: This always retrieves a fresh agent instance via getAgent() for multi-pod compatibility.
+ * The agent state is stored in PostgreSQL (Askar), so this is safe across pods.
  */
 export async function getESSIAgent(): Promise<Agent<any>> {
-    if (essiAgent) {
-        return essiAgent;
-    }
+    // First try to get tenant ID from Redis cache
+    let cachedTenant = await essiTenantCache.get('default');
 
-    if (!essiAgentTenantId) {
-        // Try to load from database
+    if (!cachedTenant) {
+        // Fallback: Try to load from database
         const client = await db.connect();
         try {
             const result = await client.query(
                 'SELECT wallet_id FROM institutional_agents WHERE is_default = true AND is_active = true'
             );
-            if (result.rows.length > 0) {
-                essiAgentTenantId = result.rows[0].wallet_id;
+            if (result.rows.length > 0 && result.rows[0].wallet_id) {
+                const tenantId = result.rows[0].wallet_id;
+                // Cache in Redis for other pods
+                await essiTenantCache.set('default', { tenantId });
+                cachedTenant = { tenantId };
             }
         } finally {
             client.release();
         }
     }
 
-    if (!essiAgentTenantId) {
+    if (!cachedTenant?.tenantId) {
         throw new Error('ESSI agent not initialized. Call setupESSIDefaultAgent first.');
     }
 
-    essiAgent = await getAgent({ tenantId: essiAgentTenantId });
-    return essiAgent;
+    // Always get a fresh agent instance - the agentService handles its own caching
+    return getAgent({ tenantId: cachedTenant.tenantId });
 }
 
 /**
  * Check if ESSI agent is initialized
+ * Note: This checks Redis cache - if running in multi-pod setup, another pod may have initialized it
  */
-export function isESSIAgentInitialized(): boolean {
-    return essiAgent !== null && essiAgentTenantId !== null;
+export async function isESSIAgentInitialized(): Promise<boolean> {
+    const cached = await essiTenantCache.get('default');
+    if (cached?.tenantId) {
+        return true;
+    }
+    // Fallback check database
+    const client = await db.connect();
+    try {
+        const result = await client.query(
+            'SELECT wallet_id FROM institutional_agents WHERE is_default = true AND is_active = true'
+        );
+        return result.rows.length > 0 && !!result.rows[0].wallet_id;
+    } finally {
+        client.release();
+    }
 }
