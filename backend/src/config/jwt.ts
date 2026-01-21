@@ -39,7 +39,12 @@ export const jwtConfig = {
 // Get cookie domain from FRONTEND_URL or default to undefined (current domain only)
 const getCookieDomain = (): string | undefined => {
   const frontendUrl = process.env.FRONTEND_URL;
-  if (!frontendUrl) return undefined;
+  console.log('[JWT Config] FRONTEND_URL:', frontendUrl);
+
+  if (!frontendUrl) {
+    console.log('[JWT Config] No FRONTEND_URL, cookie domain will be undefined');
+    return undefined;
+  }
 
   try {
     const url = new URL(frontendUrl);
@@ -49,20 +54,27 @@ const getCookieDomain = (): string | undefined => {
     const parts = hostname.split('.');
     if (parts.length >= 2) {
       // Get the last two parts (e.g., essi.studio from www.essi.studio)
-      return '.' + parts.slice(-2).join('.');
+      const domain = '.' + parts.slice(-2).join('.');
+      console.log('[JWT Config] Cookie domain set to:', domain);
+      return domain;
     }
+    console.log('[JWT Config] Could not parse domain from hostname:', hostname);
     return undefined;
-  } catch {
+  } catch (e) {
+    console.log('[JWT Config] Error parsing FRONTEND_URL:', e);
     return undefined;
   }
 };
 
 // Cookie configuration for refresh tokens
+const cookieDomain = getCookieDomain();
 export const cookieConfig = {
   httpOnly: true,           // Prevents JavaScript access (XSS protection)
   secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
   sameSite: 'lax' as const, // 'lax' allows cookie on same-site navigations (better than 'strict' for refresh)
   path: '/',                // Send cookie with all requests to allow refresh
   maxAge: 7 * 24 * 60 * 60 * 1000,  // 7 days in milliseconds
-  domain: getCookieDomain(), // Set domain for cross-subdomain cookie sharing
+  domain: cookieDomain, // Set domain for cross-subdomain cookie sharing
 } as const;
+
+console.log('[JWT Config] Full cookie config:', JSON.stringify(cookieConfig, null, 2));
