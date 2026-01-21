@@ -615,48 +615,97 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
       }
     }
 
-    // Handle SD-JWT VC format (existing logic)
-    // Build credential claims from schema attributes and provided data
-    const credentialSubject: Record<string, any> = {}
-    for (const attrName of schemaAttributes) {
-      if (offer.credentialData[attrName] !== undefined) {
-        credentialSubject[attrName] = offer.credentialData[attrName]
-      }
-    }
-
-    // Create a simple SD-JWT VC response
-    // In production, this would use the OpenId4VcIssuerModule's credential signing
-    const credential = {
-      '@context': ['https://www.w3.org/2018/credentials/v1'],
-      type: ['VerifiableCredential', credDefTag],
-      issuer: issuerDid,
-      issuanceDate,
-      credentialSubject: {
-        ...credentialSubject,
-        ...(holderDid && { id: holderDid })
-      }
-    }
-
-    // Update offer status
-    offer.status = 'credential_issued'
-    await pendingOffers.set(offer.id, offer)
-
-    // Update database
+    // Handle SD-JWT VC format - Sign using Credo's SdJwtVcModule
     try {
-      await db.query(
-        `UPDATE oid4vci_pending_offers SET status = 'credential_issued', issued_at = NOW() WHERE id = $1`,
-        [offer.id]
-      )
-    } catch (dbError) {
-      console.warn('Failed to update offer status in database:', dbError)
-    }
+      const agent = await getAgent({ tenantId })
 
-    res.json({
-      format: 'vc+sd-jwt',
-      credential: JSON.stringify(credential), // In production, this would be a signed SD-JWT
-      c_nonce: newCNonce,
-      c_nonce_expires_in: 300,
-    })
+      // Ensure the issuer key binding exists
+      const vmId = `${issuerDid}#key-0`
+      const openbadgesApi = (agent.modules as any).openbadges
+      if (openbadgesApi) {
+        await openbadgesApi.ensureBinding(issuerDid, vmId)
+        console.log(`[SD-JWT] Ensured key binding for ${vmId}`)
+      } else {
+        console.warn('[SD-JWT] OpenBadges module not available, key may not exist')
+      }
+
+      // Build credential claims from schema attributes and provided data
+      const credentialClaims: Record<string, any> = {}
+      for (const attrName of schemaAttributes) {
+        if (offer.credentialData[attrName] !== undefined) {
+          credentialClaims[attrName] = offer.credentialData[attrName]
+        }
+      }
+
+      // Extract holder JWK from proof JWT for key binding
+      let holderBinding: { method: 'jwk'; jwk: any } | undefined
+      if (proof?.jwt) {
+        try {
+          const [headerB64] = proof.jwt.split('.')
+          const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString())
+          if (header.jwk) {
+            holderBinding = {
+              method: 'jwk',
+              jwk: header.jwk
+            }
+            console.log('[SD-JWT] Holder key binding extracted from proof JWT')
+          }
+        } catch (proofError) {
+          console.warn('[SD-JWT] Failed to extract holder JWK from proof:', proofError)
+        }
+      }
+
+      // Build SD-JWT VC payload
+      const sdJwtPayload = {
+        vct: offer.credentialConfigurationId || credDefTag,  // Verifiable Credential Type
+        iss: issuerDid,
+        iat: Math.floor(Date.now() / 1000),
+        ...credentialClaims,
+      }
+
+      // Sign the SD-JWT VC using Credo
+      console.log('[SD-JWT] Signing credential with issuer:', vmId)
+      const signedSdJwt = await agent.sdJwtVc.sign({
+        payload: sdJwtPayload,
+        holder: holderBinding,
+        issuer: {
+          method: 'did',
+          didUrl: vmId,
+        },
+        disclosureFrame: {
+          _sd: schemaAttributes,  // Make all attributes selectively disclosable
+        },
+      })
+
+      console.log('[SD-JWT] Credential signed successfully')
+
+      // Update offer status
+      offer.status = 'credential_issued'
+      await pendingOffers.set(offer.id, offer)
+
+      // Update database
+      try {
+        await db.query(
+          `UPDATE oid4vci_pending_offers SET status = 'credential_issued', issued_at = NOW() WHERE id = $1`,
+          [offer.id]
+        )
+      } catch (dbError) {
+        console.warn('Failed to update offer status in database:', dbError)
+      }
+
+      res.json({
+        format: 'vc+sd-jwt',
+        credential: signedSdJwt.compact,  // Properly signed SD-JWT string
+        c_nonce: newCNonce,
+        c_nonce_expires_in: 300,
+      })
+    } catch (sdJwtError: any) {
+      console.error('[SD-JWT] Failed to sign credential:', sdJwtError)
+      return res.status(500).json({
+        error: 'server_error',
+        error_description: `Failed to sign SD-JWT credential: ${sdJwtError.message}`
+      })
+    }
   } catch (error: any) {
     console.error('Error in credential endpoint:', error)
     res.status(500).json({
