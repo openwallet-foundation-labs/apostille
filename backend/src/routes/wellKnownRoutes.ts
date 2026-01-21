@@ -193,8 +193,8 @@ export function createIssuerRoutes(): Router {
                 format: 'vc+sd-jwt',
                 vct: configId,
                 scope: configId,
-                cryptographic_binding_methods_supported: ['did:jwk', 'did:key'],
-                credential_signing_alg_values_supported: ['EdDSA'],
+                cryptographic_binding_methods_supported: ['jwk', 'did:jwk', 'did:key'],
+                credential_signing_alg_values_supported: ['EdDSA', 'ES256'],
                 display: [{
                   name: meta.name || configId,
                   description: meta.description,
