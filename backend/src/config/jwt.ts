@@ -36,6 +36,27 @@ export const jwtConfig = {
   expiresIn: '24h',
 } as const;
 
+// Get cookie domain from FRONTEND_URL or default to undefined (current domain only)
+const getCookieDomain = (): string | undefined => {
+  const frontendUrl = process.env.FRONTEND_URL;
+  if (!frontendUrl) return undefined;
+
+  try {
+    const url = new URL(frontendUrl);
+    const hostname = url.hostname;
+    // For subdomains like essi.studio, set domain to .essi.studio
+    // This allows cookies to be shared across api.essi.studio and essi.studio
+    const parts = hostname.split('.');
+    if (parts.length >= 2) {
+      // Get the last two parts (e.g., essi.studio from www.essi.studio)
+      return '.' + parts.slice(-2).join('.');
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 // Cookie configuration for refresh tokens
 export const cookieConfig = {
   httpOnly: true,           // Prevents JavaScript access (XSS protection)
@@ -43,4 +64,5 @@ export const cookieConfig = {
   sameSite: 'lax' as const, // 'lax' allows cookie on same-site navigations (better than 'strict' for refresh)
   path: '/',                // Send cookie with all requests to allow refresh
   maxAge: 7 * 24 * 60 * 60 * 1000,  // 7 days in milliseconds
+  domain: getCookieDomain(), // Set domain for cross-subdomain cookie sharing
 } as const;
