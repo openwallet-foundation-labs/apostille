@@ -721,6 +721,11 @@ const processExistingKemMessages = async (agent: Agent<any>) => {
  * Stores the peer's key and creates a pending request for the user to accept
  */
 const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
+    // Check if agent.events is available (may not be for some tenant agent configurations)
+    if (!agent.events) {
+        console.warn('[KEM] agent.events not available, skipping KEM handler setup');
+        return;
+    }
     agent.events.on<BasicMessageStateChangedEvent>(BasicMessageEventTypes.BasicMessageStateChanged, async ({ payload }) => {
         try {
             const { basicMessageRecord } = payload;
