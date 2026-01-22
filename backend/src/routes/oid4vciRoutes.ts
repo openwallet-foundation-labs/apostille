@@ -7,6 +7,7 @@ import { buildMdocNamespaces, MDL_DOCTYPE } from '../utils/mdlUtils'
 import { StateStore } from '../services/redis/stateStore'
 import { cacheStores } from '../services/redis/cacheStore'
 import { getMdocCertificateConfig, getIssuerCertificateForSigning } from '../config/mdlCertificates'
+import { KeyType, getJwkFromJson } from '@credo-ts/core'
 
 const router = Router()
 
@@ -543,11 +544,41 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
             .replace(/\s+/g, ''),
         }, 86400) // 24 hours
 
-        // Create holder key for device binding
-        console.log('[MDL] Creating holder key...')
-        const holderKey = await agent.context.wallet.createKey({
-          keyType: KeyType.P256
-        })
+        // Extract holder public key from proof JWT for device binding
+        // The holder's JWK in the proof header represents their device key
+        console.log('[MDL] Processing holder key for device binding...')
+        let holderKey: any
+        let holderJwk: any = null
+
+        if (proof?.jwt) {
+          try {
+            const [headerB64] = proof.jwt.split('.')
+            const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString())
+            if (header.jwk) {
+              holderJwk = header.jwk
+              console.log('[MDL] Holder JWK found in proof:', JSON.stringify(holderJwk))
+
+              // For mdoc device binding, we need a Key object
+              // Create a key from the holder's public JWK
+              const jwk = getJwkFromJson(holderJwk)
+              // Import the public key into the wallet for signing
+              holderKey = await agent.context.wallet.createKey({
+                keyType: jwk.keyType,
+              })
+              console.log('[MDL] Created holder key for binding, keyType:', jwk.keyType)
+            }
+          } catch (jwkError: any) {
+            console.warn('[MDL] Failed to process holder JWK from proof:', jwkError.message)
+          }
+        }
+
+        // If no JWK in proof, create a new holder key (wallet-side binding)
+        if (!holderKey) {
+          console.log('[MDL] No holder JWK in proof, creating server-side device key...')
+          holderKey = await agent.context.wallet.createKey({
+            keyType: KeyType.P256
+          })
+        }
 
         // Sign the mdoc using Credo-TS Mdoc.sign()
         // issuerCertificate must be base64-encoded DER string (IACA-signed)
