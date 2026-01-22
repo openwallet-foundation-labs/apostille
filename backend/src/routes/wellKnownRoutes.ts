@@ -174,12 +174,27 @@ export function createIssuerRoutes(): Router {
 
       try {
         // Query the database for credential definitions with format = 'oid4vc' or 'mso_mdoc'
+        console.log(`[OID4VCI Metadata] Querying credential definitions for tenant: ${tenantId}`)
+
         const result = await db.query(`
           SELECT cd.*, cd.overlay
           FROM credential_definitions cd
           WHERE cd.tenant_id = $1
             AND cd.format IN ('oid4vc', 'mso_mdoc')
         `, [tenantId])
+
+        console.log(`[OID4VCI Metadata] Found ${result.rows.length} credential definitions for tenant ${tenantId}`)
+        if (result.rows.length === 0) {
+          // Debug: check what credential definitions exist for any tenant
+          const allCredDefs = await db.query(`
+            SELECT tenant_id, tag, format, credential_definition_id
+            FROM credential_definitions
+            WHERE format IN ('oid4vc', 'mso_mdoc')
+            LIMIT 10
+          `)
+          console.log(`[OID4VCI Metadata] DEBUG - All oid4vc/mso_mdoc credential definitions in DB:`,
+            allCredDefs.rows.map(r => ({ tenant_id: r.tenant_id, tag: r.tag, format: r.format })))
+        }
 
         // If we have credential definitions, build configurations from them
         if (result.rows && result.rows.length > 0) {
@@ -259,6 +274,14 @@ export function createIssuerRoutes(): Router {
         // Continue with empty configurations - issuer metadata is still valid
       }
 
+      // Check if tenantId looks like a UUID (valid format)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      const isValidUuid = uuidRegex.test(tenantId)
+
+      if (!isValidUuid) {
+        console.warn(`[OID4VCI Metadata] WARNING: tenantId '${tenantId}' is not a valid UUID. Use your actual tenant UUID from login response.`)
+      }
+
       // Build the issuer metadata response
       const issuerMetadata = {
         credential_issuer: issuerUrl,
@@ -269,7 +292,17 @@ export function createIssuerRoutes(): Router {
           name: issuerDisplayName,
           locale: 'en'
         }],
-        credential_configurations_supported: credentialConfigurations
+        credential_configurations_supported: credentialConfigurations,
+        // Debug info when no credentials are found (helps troubleshooting)
+        ...(Object.keys(credentialConfigurations).length === 0 && {
+          _debug: {
+            message: 'No OID4VC or mdoc credential definitions found for this tenant',
+            hint: isValidUuid
+              ? 'Create an SD-JWT VC or mDL/mdoc credential definition in the dashboard'
+              : `'${tenantId}' does not look like a valid tenant UUID. Use your actual tenant UUID from the login response.`,
+            expectedFormat: 'UUID (e.g., 123e4567-e89b-12d3-a456-426614174000)'
+          }
+        })
       }
 
       res.set({
