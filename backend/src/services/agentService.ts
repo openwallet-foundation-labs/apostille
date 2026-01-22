@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Agent, ConsoleLogger, LogLevel, DidsModule, HttpOutboundTransport, WsOutboundTransport, ConnectionsModule, CredentialsModule, AutoAcceptCredential, V2CredentialProtocol, ProofsModule, AutoAcceptProof, V2ProofProtocol, ConnectionEventTypes, DidExchangeState, InjectionSymbols, BasicMessageEventTypes } from '@credo-ts/core';
+import { Agent, ConsoleLogger, LogLevel, DidsModule, HttpOutboundTransport, WsOutboundTransport, ConnectionsModule, CredentialsModule, AutoAcceptCredential, V2CredentialProtocol, ProofsModule, AutoAcceptProof, V2ProofProtocol, ConnectionEventTypes, DidExchangeState, InjectionSymbols, BasicMessageEventTypes, WebDidResolver } from '@credo-ts/core';
 import type { BasicMessageStateChangedEvent } from '@credo-ts/core';
 import { agentDependencies, HttpInboundTransport, WsInboundTransport } from '@credo-ts/node';
 import { AskarModule } from '@credo-ts/askar';
@@ -370,7 +370,7 @@ async function initializeAgent(walletId: string, walletKey: string, multiWalletD
 
                 }),
                 dids: new DidsModule({
-                    resolvers: [new CheqdDidResolver(), new KanonDIDResolver(ledgerService)],
+                    resolvers: [new WebDidResolver(), new CheqdDidResolver(), new KanonDIDResolver(ledgerService)],
                     registrars: [new CheqdDidRegistrar(), new KanonDIDRegistrar(ledgerService)],
                 }),
                 connections: new ConnectionsModule({
