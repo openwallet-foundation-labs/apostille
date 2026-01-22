@@ -226,6 +226,12 @@ export function createIssuerRoutes(): Router {
                 // Include jwk and did:jwk for Bifold/Credo compatibility, plus cose_key for standard compliance
                 cryptographic_binding_methods_supported: ['jwk', 'did:jwk', 'did:key', 'cose_key'],
                 credential_signing_alg_values_supported: ['ES256', 'ES384', 'ES512'],
+                // Proof types supported - required for wallet to know how to prove key possession
+                proof_types_supported: {
+                  jwt: {
+                    proof_signing_alg_values_supported: ['ES256', 'ES384', 'ES512']
+                  }
+                },
                 display: [{
                   name: meta.name || `Mobile Document (${doctype.split('.').pop()})`,
                   description: meta.description || `ISO 18013-5 compliant mobile document`,
@@ -257,6 +263,12 @@ export function createIssuerRoutes(): Router {
                 scope: configId,
                 cryptographic_binding_methods_supported: ['jwk', 'did:jwk', 'did:key'],
                 credential_signing_alg_values_supported: ['EdDSA', 'ES256'],
+                // Proof types supported - required for wallet to know how to prove key possession
+                proof_types_supported: {
+                  jwt: {
+                    proof_signing_alg_values_supported: ['EdDSA', 'ES256']
+                  }
+                },
                 display: [{
                   name: meta.name || configId,
                   description: meta.description,
