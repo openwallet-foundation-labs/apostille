@@ -223,7 +223,8 @@ export function createIssuerRoutes(): Router {
                 format: 'mso_mdoc',
                 doctype: doctype,
                 scope: configId,
-                cryptographic_binding_methods_supported: ['cose_key'],
+                // Include jwk and did:jwk for Bifold/Credo compatibility, plus cose_key for standard compliance
+                cryptographic_binding_methods_supported: ['jwk', 'did:jwk', 'did:key', 'cose_key'],
                 credential_signing_alg_values_supported: ['ES256', 'ES384', 'ES512'],
                 display: [{
                   name: meta.name || `Mobile Document (${doctype.split('.').pop()})`,
