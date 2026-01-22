@@ -3,6 +3,7 @@ import { getAgent } from '../services/agentService'
 import { db } from '../db/driver'
 import { buildMdocClaimsFromNamespaces } from '../utils/mdlUtils'
 import { cacheStores } from '../services/redis/cacheStore'
+import { getMdocCertificateConfig, pemToBase64Der } from '../config/mdlCertificates'
 
 const router = Router()
 
@@ -50,6 +51,51 @@ router.get('/did.json', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to serve DID document',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    })
+  }
+})
+
+/**
+ * IACA Certificate for mDL/mdoc Verification
+ *
+ * Endpoint: GET /.well-known/iaca-certificate
+ *
+ * Returns the IACA (root) certificate that wallets need to trust for mdoc verification.
+ * This is a PUBLIC endpoint - no authentication required.
+ *
+ * Wallets should add this certificate to their trusted certificates list to verify
+ * mdoc credentials issued by this platform.
+ */
+router.get('/iaca-certificate', async (req: Request, res: Response) => {
+  try {
+    const certConfig = await getMdocCertificateConfig()
+
+    // Return in multiple formats for flexibility
+    res.set({
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
+    })
+
+    res.status(200).json({
+      // Base64 DER format (for programmatic use)
+      certificate: pemToBase64Der(certConfig.iacaCertificate),
+      // PEM format (for display/manual copy)
+      pem: certConfig.iacaCertificate,
+      // Issuer certificate (for chain verification)
+      issuerCertificate: pemToBase64Der(certConfig.issuerCertificate),
+      issuerCertificatePem: certConfig.issuerCertificate,
+      // Metadata
+      algorithm: certConfig.algorithm,
+      isTestCertificate: process.env.MDL_USE_TEST_CERTIFICATES === 'true' || !process.env.MDL_ISSUER_CERT_PATH,
+      message: 'Add this IACA certificate to your wallet\'s trusted certificates to verify mdoc credentials from this issuer.',
+    })
+  } catch (error: any) {
+    console.error('Error serving IACA certificate:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to serve IACA certificate',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     })
   }

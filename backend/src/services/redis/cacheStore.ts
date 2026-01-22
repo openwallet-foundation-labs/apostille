@@ -148,6 +148,7 @@ export const cacheStores = {
     issuerKey: any
     issuerCertificate: any
     certificateBase64: string
+    iacaCertificateBase64?: string
   }>({
     prefix: 'cache:issuer-cert:',
     defaultTtlSeconds: 86400, // 24 hours

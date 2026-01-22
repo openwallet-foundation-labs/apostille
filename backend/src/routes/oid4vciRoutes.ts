@@ -6,6 +6,7 @@ import crypto from 'crypto'
 import { buildMdocNamespaces, MDL_DOCTYPE } from '../utils/mdlUtils'
 import { StateStore } from '../services/redis/stateStore'
 import { cacheStores } from '../services/redis/cacheStore'
+import { getMdocCertificateConfig, getIssuerCertificateForSigning } from '../config/mdlCertificates'
 
 const router = Router()
 
@@ -515,51 +516,32 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         const namespaces = buildMdocNamespaces(offer.credentialData, mdocDoctype)
 
         // Import required classes from credo-ts
-        const { Mdoc, KeyType, X509Service } = await import('@credo-ts/core')
+        const { Mdoc, KeyType } = await import('@credo-ts/core')
 
-        // Get or create persistent issuer key and certificate for this tenant
-        // Note: Keys are stored in the wallet (PostgreSQL) and are shared across pods
-        // We use Redis to cache the certificate and track which tenants have been initialized
-        let certificateBase64: string
-        let issuerKey: any
+        // Get the IACA-signed issuer certificate from mdlCertificates config
+        // This certificate is signed by the IACA root CA, which wallets trust
+        const certConfig = await getMdocCertificateConfig()
+        const issuerCertificateBase64 = await getIssuerCertificateForSigning()
+        console.log('[MDL] Using IACA-signed issuer certificate')
 
-        // Check if we have a cached certificate in Redis
-        const cachedCert = await cacheStores.issuerCertificates.get(tenantId)
+        // Import the issuer private key into the wallet for signing
+        // The key is imported fresh each time but uses the same key material
+        const issuerKey = await agent.context.wallet.createKey({
+          keyType: KeyType.P256,
+          privateKey: new Uint8Array(certConfig.issuerPrivateKeyBytes) as any,
+        })
+        console.log('[MDL] Issuer key imported, fingerprint:', issuerKey.fingerprint)
 
-        if (cachedCert && cachedCert.certificateBase64) {
-          console.log('[MDL] Using cached certificate for tenant:', tenantId)
-          certificateBase64 = cachedCert.certificateBase64
-          // Create a new key for signing (keys are in shared wallet)
-          // TODO: In production, store key fingerprint in DB and retrieve by fingerprint
-          issuerKey = await agent.context.wallet.createKey({ keyType: KeyType.P256 })
-        } else {
-          // Create issuer key in the wallet
-          console.log('[MDL] Creating NEW issuer key in wallet for tenant:', tenantId)
-          issuerKey = await agent.context.wallet.createKey({ keyType: KeyType.P256 })
-          console.log('[MDL] Issuer key created, fingerprint:', issuerKey.fingerprint)
-
-          // Create X509 self-signed certificate using the wallet key
-          console.log('[MDL] Creating X509 certificate...')
-          const certNow = new Date()
-          const oneYearFromNow = new Date(certNow.getTime() + 365 * 24 * 60 * 60 * 1000)
-
-          const issuerCertificate = await X509Service.createSelfSignedCertificate(agent.context, {
-            key: issuerKey,
-            notBefore: certNow,
-            notAfter: oneYearFromNow,
-            name: 'C=US'
-          })
-
-          certificateBase64 = issuerCertificate.toString('base64')
-          console.log('[MDL] X509 certificate created and cached in Redis')
-
-          // Cache the certificate in Redis for other pods
-          await cacheStores.issuerCertificates.set(tenantId, {
-            issuerKey: { fingerprint: issuerKey.fingerprint },
-            issuerCertificate: null,
-            certificateBase64
-          }, 86400) // 24 hours
-        }
+        // Cache the certificate info in Redis for the /trusted-certificates endpoint
+        await cacheStores.issuerCertificates.set(tenantId, {
+          issuerKey: { fingerprint: issuerKey.fingerprint },
+          issuerCertificate: null,
+          certificateBase64: issuerCertificateBase64,
+          iacaCertificateBase64: certConfig.iacaCertificate
+            .replace(/-----BEGIN CERTIFICATE-----/g, '')
+            .replace(/-----END CERTIFICATE-----/g, '')
+            .replace(/\s+/g, ''),
+        }, 86400) // 24 hours
 
         // Create holder key for device binding
         console.log('[MDL] Creating holder key...')
@@ -568,8 +550,8 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         })
 
         // Sign the mdoc using Credo-TS Mdoc.sign()
-        // issuerCertificate must be base64-encoded DER string
-        console.log('[MDL] Signing mdoc...')
+        // issuerCertificate must be base64-encoded DER string (IACA-signed)
+        console.log('[MDL] Signing mdoc with IACA-signed certificate...')
         const now = new Date()
         const oneYearFromNow = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000)
 
@@ -577,14 +559,14 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
           docType: mdocDoctype,
           namespaces,
           holderKey,
-          issuerCertificate: certificateBase64,
+          issuerCertificate: issuerCertificateBase64,
           validityInfo: {
             signed: now,
             validFrom: now,
             validUntil: oneYearFromNow
           }
         })
-        console.log('[MDL] Mdoc signed successfully')
+        console.log('[MDL] Mdoc signed successfully with IACA-trusted certificate')
 
         // Update offer status
         offer.status = 'credential_issued'
