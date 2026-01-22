@@ -22,6 +22,11 @@ const nextConfig = {
         source: '/api/:path*',
         destination: `${backendUrl}/api/:path*`,
       },
+      // Proxy .well-known endpoints to backend (for DID resolution, IACA certs, etc.)
+      {
+        source: '/.well-known/:path*',
+        destination: `${backendUrl}/.well-known/:path*`,
+      },
       // WebSocket connections should be handled directly by the client
       // to the backend URL since Next.js rewrites don't support ws:// protocol
     ];

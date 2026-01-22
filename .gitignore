@@ -47,8 +47,13 @@ yarn-error.log*
 *.key
 *.p12
 *.pfx
+*.csr
+*.srl
 credentials.json
 service-account*.json
+
+# MDL/mdoc certificates directory
+/certificates/
 
 # vercel
 .vercel
