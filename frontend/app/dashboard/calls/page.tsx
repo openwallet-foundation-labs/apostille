@@ -7,6 +7,8 @@ import { useNotifications } from '../../context/NotificationContext'
 
 type Connection = { id: string; theirLabel?: string; state: string }
 type OfferEvt = { connectionId: string; threadId: string; sdp: string; theirLabel?: string; pthid?: string }
+type IceServer = { urls: string | string[]; username?: string; credential?: string }
+type IceConfigResponse = { iceServers: IceServer[]; ttlSeconds?: number; expiresAt?: string }
 
 function RemoteVideo({ stream, label }: { stream: MediaStream | null; label?: string }) {
   const ref = useRef<HTMLVideoElement | null>(null)
@@ -86,7 +88,7 @@ export default function CallsPage() {
   const localStreamRef = useRef<MediaStream | null>(null)
 
   // TURN/STUN config cache
-  const iceCfgRef = useRef<any>(null)
+  const iceCfgRef = useRef<({ iceServers: IceServer[]; iceTransportPolicy: 'all'; iceCandidatePoolSize: number } & { expiresAtMs: number }) | null>(null)
 
   // Incoming call state
   const [incomingCall, setIncomingCall] = useState<OfferEvt | null>(null)
@@ -131,16 +133,25 @@ export default function CallsPage() {
 
   // Prefetch ICE config
   const getIceConfig = useCallback(async () => {
-    if (iceCfgRef.current) return iceCfgRef.current
-    const cfg = await apiGet('/api/webrtc/turn').catch(() => ({
+    if (iceCfgRef.current && Date.now() < (iceCfgRef.current.expiresAtMs - 60_000)) return iceCfgRef.current
+    const cfg = await apiGet('/api/webrtc/turn').catch((): IceConfigResponse => ({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-      ]
+      ],
+      ttlSeconds: 300,
     }))
-    iceCfgRef.current = { ...cfg, iceTransportPolicy: 'all', iceCandidatePoolSize: 10 }
+    const typedCfg = cfg as IceConfigResponse
+    const ttlSeconds = Number.isFinite(typedCfg.ttlSeconds) && (typedCfg.ttlSeconds as number) > 0
+      ? Math.floor(typedCfg.ttlSeconds as number)
+      : 3600
+    const expiresAtMs = typedCfg.expiresAt ? Date.parse(typedCfg.expiresAt) : Date.now() + ttlSeconds * 1000
+    iceCfgRef.current = {
+      iceServers: typedCfg.iceServers || [],
+      iceTransportPolicy: 'all',
+      iceCandidatePoolSize: 10,
+      expiresAtMs: Number.isFinite(expiresAtMs) ? expiresAtMs : Date.now() + ttlSeconds * 1000,
+    }
     return iceCfgRef.current
   }, [])
 

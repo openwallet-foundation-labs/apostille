@@ -1,7 +1,7 @@
 {
-  "name": "esse-studio-backend",
+  "name": "apostille-backend",
   "version": "1.0.0",
-  "description": "Express backend for Essi Studio",
+  "description": "Express backend for Apostille",
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",

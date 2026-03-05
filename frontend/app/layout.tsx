@@ -34,9 +34,9 @@ export const metadata: Metadata = {
   title: process.env.NEXT_PUBLIC_APPLICATION_TITLE,
   description: process.env.NEXT_PUBLIC_APPLICATION_DESCRIPTION,
   keywords: ["credentials", "blockchain", "security", "identity"],
-  authors: [{ name: "Credo Team" }],
-  creator: "Credo",
-  publisher: "Credo",
+  authors: [{ name: "Apostille Team" }],
+  creator: "Apostille",
+  publisher: "Apostille",
   formatDetection: {
     email: false,
     address: false,
@@ -44,14 +44,14 @@ export const metadata: Metadata = {
   },
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'),
   openGraph: {
-    title: "Essi.studio",
+    title: "Apostille",
     description: "A modern, secure credential management platform",
     type: "website",
     locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Essi.studio",
+    title: "Apostille",
     description: "A modern, secure credential management platform",
   },
 };
@@ -68,7 +68,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#f8fafc" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Credo" />
+        <meta name="apple-mobile-web-app-title" content="Apostille" />
         <link rel="apple-touch-icon" href="/logo.png" />
         <link rel="icon" href={process.env.NEXT_PUBLIC_BWN_LOGO || '/logo.png'} />
       </head>

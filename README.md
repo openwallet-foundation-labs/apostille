@@ -1,4 +1,4 @@
-# Essi Studio - Verifiable Credentials Platform
+# Apostille - Verifiable Credentials Platform
 
 A comprehensive platform for issuing, managing, and verifying digital credentials built on open standards.
 
@@ -26,7 +26,7 @@ A comprehensive platform for issuing, managing, and verifying digital credential
 
 ```
 ├── frontend/          # Next.js 16 frontend application
-├── backend/           # Express.js backend with Credo-ts agent
+├── backend/           # Express.js backend with Credo-ts agent (SSI framework)
 ├── packages/          # Shared workflow SDK packages
 │   ├── workflow-client/
 │   ├── workflow-react/
@@ -125,11 +125,11 @@ The visual credential designer allows you to:
 ## Technology Stack
 
 - **Frontend**: Next.js 16, React 19, Tailwind CSS, Craft.js
-- **Backend**: Express.js, Credo-ts (Aries Framework)
+- **Backend**: Express.js, Credo-ts (SSI Framework)
 - **Database**: PostgreSQL with Askar wallet storage
 - **Cache**: Redis (optional, for horizontal scaling)
 - **Protocols**: DIDComm v2, OID4VC, OpenBadges 3.0
 
 ## License
 
-Copyright (c) 2024 Ajna Inc. All rights reserved.
+Apache-2.0

@@ -441,9 +441,9 @@ export const Interface: React.FC = () => {
       <nav className="fixed top-0 left-0 w-full p-4 md:p-6 flex justify-between items-center z-50 pointer-events-auto bg-gradient-to-b from-black/30 to-transparent backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-br from-violet-400 to-purple-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg">
-            E
+            A
           </div>
-          <span className="text-xl font-bold tracking-tight text-white">Essi Studio</span>
+          <span className="text-xl font-bold tracking-tight text-white">Apostille</span>
         </div>
         <div className="hidden lg:flex items-center gap-8 text-sm font-medium text-white/80">
           <a href="#features" className="hover:text-white transition-colors">Features</a>
@@ -928,8 +928,8 @@ export const Interface: React.FC = () => {
               answer="A Verifiable Credential (VC) is a digital credential that is cryptographically signed by the issuer. Unlike PDF certificates, VCs can be instantly verified without contacting the issuing organization. Users store them in a digital wallet and own them forever."
             />
             <FAQItem
-              question="What credential formats does Essi Studio support?"
-              answer="Essi Studio supports W3C Verifiable Credentials (JSON-LD and JWT), OpenBadges 3.0, ISO 18013-5 mDL (mobile driver's license), and AnonCreds for privacy-preserving credentials."
+              question="What credential formats does Apostille support?"
+              answer="Apostille supports W3C Verifiable Credentials (JSON-LD and JWT), OpenBadges 3.0, ISO 18013-5 mDL (mobile driver's license), and AnonCreds for privacy-preserving credentials."
             />
             <FAQItem
               question="What is OID4VCI and OID4VP?"
@@ -945,7 +945,7 @@ export const Interface: React.FC = () => {
             />
             <FAQItem
               question="Can credentials be revoked?"
-              answer="Yes, Essi Studio supports credential revocation. When a credential is revoked, verifiers will see the revocation status when checking the credential. We support multiple revocation methods including status lists and revocation registries."
+              answer="Yes, Apostille supports credential revocation. When a credential is revoked, verifiers will see the revocation status when checking the credential. We support multiple revocation methods including status lists and revocation registries."
             />
           </motion.div>
         </div>
@@ -967,7 +967,7 @@ export const Interface: React.FC = () => {
               Ready to Issue Your First Credential?
             </h2>
             <p className="text-violet-100/80 text-lg mb-8 max-w-2xl mx-auto">
-              Join organizations using Essi Studio to issue verifiable credentials,
+              Join organizations using Apostille to issue verifiable credentials,
               streamline verification, and empower users with self-sovereign identity.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
@@ -995,9 +995,9 @@ export const Interface: React.FC = () => {
             <div>
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 bg-gradient-to-br from-violet-400 to-purple-600 rounded-xl flex items-center justify-center text-white font-bold text-xl">
-                  E
+                  A
                 </div>
-                <span className="text-xl font-bold text-white">Essi Studio</span>
+                <span className="text-xl font-bold text-white">Apostille</span>
               </div>
               <p className="text-white/60 text-sm">
                 The complete platform for verifiable credentials.

@@ -11,8 +11,8 @@ on:
 env:
   REGISTRY: ghcr.io
   # Update these to your container registry - uses GitHub username/org by default
-  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/essi_studio/backend
-  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/essi_studio/frontend
+  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/apostille/backend
+  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/apostille/frontend
 
 jobs:
   build-and-push:
