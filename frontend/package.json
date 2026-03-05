@@ -11,12 +11,12 @@
   "dependencies": {
     "@ajna-inc/workflow-client": "workspace:*",
     "@ajna-inc/workflow-react": "workspace:*",
-    "asn1js": "^3.0.5",
     "@craftjs/core": "^0.2.10",
     "@craftjs/layers": "^0.2.6",
     "@headlessui/react": "^2.2.2",
     "@next/env": "^15.3.2",
     "@tailwindcss/forms": "^0.5.10",
+    "asn1js": "^3.0.5",
     "bcryptjs": "^3.0.2",
     "clsx": "^2.1.1",
     "cookies-next": "^5.1.0",

@@ -19,7 +19,7 @@ COPY packages/workflow-e2e-tests/package.json ./packages/workflow-e2e-tests/
 ENV YARN_ENABLE_IMMUTABLE_INSTALLS=false
 RUN --mount=type=cache,target=/root/.yarn/berry/cache \
     yarn install && \
-    yarn workspaces focus esse-studio-backend
+    yarn workspaces focus apostille-backend
 
 # Now copy source files
 COPY . .
@@ -31,7 +31,7 @@ RUN corepack enable && corepack prepare yarn@4.3.1 --activate
 
 # Build workspace dependency and backend in one layer
 RUN yarn workspace @ajna-inc/workflow-backend-express build && \
-    yarn workspace esse-studio-backend build
+    yarn workspace apostille-backend build
 
 # Create a production-only node_modules set for runtime
 FROM node:20 AS proddeps
@@ -39,7 +39,7 @@ WORKDIR /repo
 COPY --from=deps /repo /repo
 RUN corepack enable && corepack prepare yarn@4.3.1 --activate
 RUN --mount=type=cache,target=/root/.yarn/berry/cache \
-    yarn workspaces focus esse-studio-backend --production
+    yarn workspaces focus apostille-backend --production
 
 FROM node:20-slim AS runner
 WORKDIR /app
