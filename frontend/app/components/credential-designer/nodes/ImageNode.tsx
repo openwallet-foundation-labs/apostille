@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useState, useCallback } from 'react';
-import { useNode } from '@craftjs/core';
+import { useEditor, useNode } from '@craftjs/core';
 import { ImageNodeProps } from '@/lib/credential-designer/types';
 import { credentialDesignerApi } from '@/lib/credential-designer/api';
 import { useDesignerStore } from '@/lib/credential-designer/store';
@@ -201,6 +201,7 @@ export const ImageNode: React.FC<Partial<ImageNodeProps>> = (props) => {
 function ImageNodeSettings() {
   const {
     actions: { setProp },
+    id: nodeId,
     src,
     width,
     height,
@@ -222,11 +223,24 @@ function ImageNodeSettings() {
     x: node.data.props.x,
     y: node.data.props.y,
     publicUrl: node.data.props.publicUrl,
+    id: node.id,
   }));
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const currentTemplate = useDesignerStore((state) => state.currentTemplate);
   const [isUploading, setIsUploading] = useState(false);
+  const { logoNodeIds } = useEditor((state) => {
+    const ids: string[] = [];
+    Object.entries(state.nodes).forEach(([id, node]) => {
+      const isImageNode = node.data?.name === 'ImageNode' || node.data?.displayName === 'Image';
+      if (isImageNode && node.data?.props?.role === 'logo') {
+        ids.push(id);
+      }
+    });
+    return { logoNodeIds: ids };
+  });
+  const logoInUseByOther = logoNodeIds.some((id) => id !== nodeId);
+  const disableLogoOption = logoInUseByOther && role !== 'logo';
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -315,13 +329,26 @@ function ImageNodeSettings() {
         </label>
         <select
           value={role}
-          onChange={(e) => setProp((props: ImageNodeProps) => (props.role = e.target.value as ImageNodeProps['role']))}
+          onChange={(e) => {
+            const nextRole = e.target.value as ImageNodeProps['role'];
+            if (nextRole === 'logo' && disableLogoOption) {
+              return;
+            }
+            setProp((props: ImageNodeProps) => (props.role = nextRole));
+          }}
           className="w-full px-3 py-2 bg-surface-200 border border-border-primary rounded text-text-primary text-sm"
         >
-          <option value="logo">Logo (maps to OCA logo)</option>
+          <option value="logo" disabled={disableLogoOption}>
+            Logo (maps to OCA logo)
+          </option>
           <option value="background">Background (maps to OCA background_image)</option>
           <option value="decoration">Decoration (not exported)</option>
         </select>
+        {disableLogoOption && (
+          <p className="mt-1 text-xs text-text-tertiary">
+            Another image is already set as the Logo. Deselect it to use this one.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">

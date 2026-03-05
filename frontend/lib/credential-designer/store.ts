@@ -47,7 +47,7 @@ interface DesignerStore {
   duplicateTemplate: () => Promise<void>;
 
   // Craft state updates
-  updateCraftState: (craftState: CraftState) => void;
+  updateCraftState: (craftState: CraftState, templateId?: string) => void;
   updateOCABranding: (branding: OCABranding) => void;
   updateOCAMeta: (meta: OCAMeta) => void;
   updateTemplateName: (name: string) => void;
@@ -123,24 +123,30 @@ const initialState = {
 };
 
 export const useDesignerStore = create<DesignerStore>()(
-  immer((set, get) => ({
+  immer((set, get) => {
+    let loadSeq = 0;
+    return ({
     ...initialState,
 
     // Template management
     loadTemplate: async (id: string) => {
+      const requestId = ++loadSeq;
       set((state) => {
         state.isLoading = true;
         state.error = null;
+        state.currentTemplate = null;
       });
 
       try {
         const result = await credentialDesignerApi.getTemplate(id);
+        if (requestId !== loadSeq) return;
         set((state) => {
           state.currentTemplate = result.template;
           state.isLoading = false;
           state.isDirty = false;
         });
       } catch (error: any) {
+        if (requestId !== loadSeq) return;
         set((state) => {
           state.error = error.message;
           state.isLoading = false;
@@ -298,9 +304,12 @@ export const useDesignerStore = create<DesignerStore>()(
     },
 
     // Craft state updates
-    updateCraftState: (craftState: CraftState) => {
+    updateCraftState: (craftState: CraftState, templateId?: string) => {
       set((state) => {
         if (state.currentTemplate) {
+          if (templateId && state.currentTemplate.id !== templateId) {
+            return;
+          }
           state.currentTemplate.craft_state = craftState;
           state.isDirty = true;
         }
@@ -484,7 +493,7 @@ export const useDesignerStore = create<DesignerStore>()(
     reset: () => {
       set(initialState);
     },
-  }))
+  })})
 );
 
 export default useDesignerStore;

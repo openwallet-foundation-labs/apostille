@@ -7,9 +7,12 @@ import { useNotifications } from '../../context/NotificationContext'
 
 type Connection = { id: string; theirLabel?: string; state: string }
 type OfferEvt = { connectionId: string; threadId: string; sdp: string; theirLabel?: string; pthid?: string }
+type IceServer = { urls: string | string[]; username?: string; credential?: string }
+type IceConfigResponse = { iceServers: IceServer[]; ttlSeconds?: number; expiresAt?: string }
 
 function RemoteVideo({ stream, label }: { stream: MediaStream | null; label?: string }) {
   const ref = useRef<HTMLVideoElement | null>(null)
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null)
 
   useEffect(() => {
     if (ref.current && stream) {
@@ -20,15 +23,36 @@ function RemoteVideo({ stream, label }: { stream: MediaStream | null; label?: st
     }
   }, [stream, label])
 
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const handleLoaded = () => {
+      if (el.videoWidth && el.videoHeight) {
+        setAspectRatio(el.videoWidth / el.videoHeight)
+      }
+    }
+    el.addEventListener('loadedmetadata', handleLoaded)
+    return () => {
+      el.removeEventListener('loadedmetadata', handleLoaded)
+    }
+  }, [stream])
+
   return (
-    <div className="relative w-full h-full bg-surface-900 rounded-2xl overflow-hidden">
-      <video
-        ref={ref}
-        autoPlay
-        playsInline
-        muted={false}
-        className="absolute inset-0 w-full h-full object-cover"
-      />
+    <div className="relative w-full h-full bg-black rounded-2xl overflow-hidden">
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div
+          className="relative h-full max-w-full"
+          style={aspectRatio ? { aspectRatio } : undefined}
+        >
+          <video
+            ref={ref}
+            autoPlay
+            playsInline
+            muted={false}
+            className="absolute inset-0 w-full h-full object-contain"
+          />
+        </div>
+      </div>
       {label && (
         <div className="absolute bottom-4 left-4 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-sm">
           <span className="text-sm font-medium text-white">{label}</span>
@@ -86,13 +110,14 @@ export default function CallsPage() {
   const localStreamRef = useRef<MediaStream | null>(null)
 
   // TURN/STUN config cache
-  const iceCfgRef = useRef<any>(null)
+  const iceCfgRef = useRef<({ iceServers: IceServer[]; iceTransportPolicy: 'all'; iceCandidatePoolSize: number } & { expiresAtMs: number }) | null>(null)
 
   // Incoming call state
   const [incomingCall, setIncomingCall] = useState<OfferEvt | null>(null)
   const processedIdsRef = useRef<Set<string>>(new Set())
   const recentNotificationsRef = useRef<Map<string, number>>(new Map())
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidate[]>>(new Map())
+  const mountTimeRef = useRef<number>(Date.now())
   const [status, setStatus] = useState<'idle' | 'calling' | 'incoming' | 'connected'>('idle')
   const [callingPeer, setCallingPeer] = useState<Connection | null>(null)
 
@@ -131,16 +156,25 @@ export default function CallsPage() {
 
   // Prefetch ICE config
   const getIceConfig = useCallback(async () => {
-    if (iceCfgRef.current) return iceCfgRef.current
-    const cfg = await apiGet('/api/webrtc/turn').catch(() => ({
+    if (iceCfgRef.current && Date.now() < (iceCfgRef.current.expiresAtMs - 60_000)) return iceCfgRef.current
+    const cfg = await apiGet('/api/webrtc/turn').catch((): IceConfigResponse => ({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-      ]
+      ],
+      ttlSeconds: 300,
     }))
-    iceCfgRef.current = { ...cfg, iceTransportPolicy: 'all', iceCandidatePoolSize: 10 }
+    const typedCfg = cfg as IceConfigResponse
+    const ttlSeconds = Number.isFinite(typedCfg.ttlSeconds) && (typedCfg.ttlSeconds as number) > 0
+      ? Math.floor(typedCfg.ttlSeconds as number)
+      : 3600
+    const expiresAtMs = typedCfg.expiresAt ? Date.parse(typedCfg.expiresAt) : Date.now() + ttlSeconds * 1000
+    iceCfgRef.current = {
+      iceServers: typedCfg.iceServers || [],
+      iceTransportPolicy: 'all',
+      iceCandidatePoolSize: 10,
+      expiresAtMs: Number.isFinite(expiresAtMs) ? expiresAtMs : Date.now() + ttlSeconds * 1000,
+    }
     return iceCfgRef.current
   }, [])
 
@@ -341,6 +375,7 @@ export default function CallsPage() {
     if (!notifications || notifications.length === 0) return
     const now = Date.now()
     const DUPLICATE_WINDOW_MS = 1000
+    const OLDEST_ALLOWED_MS = mountTimeRef.current - 5000
 
     for (const [key, timestamp] of recentNotificationsRef.current.entries()) {
       if (now - timestamp > 5000) recentNotificationsRef.current.delete(key)
@@ -348,6 +383,11 @@ export default function CallsPage() {
 
     for (const n of notifications) {
       if (!n?.id || processedIdsRef.current.has(n.id)) continue
+      const createdAtMs = n.createdAt ? Date.parse(n.createdAt) : NaN
+      if (Number.isFinite(createdAtMs) && createdAtMs < OLDEST_ALLOWED_MS) {
+        processedIdsRef.current.add(n.id)
+        continue
+      }
 
       const p = n?.data
       let duplicateKey = `${n.type}:${p?.connectionId || ''}:${p?.thid || ''}`
@@ -486,7 +526,7 @@ export default function CallsPage() {
                 autoPlay
                 playsInline
                 muted
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain"
               />
             </div>
           </div>
