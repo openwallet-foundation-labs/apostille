@@ -54,6 +54,8 @@ export interface OCABranding {
   background_image_slice?: string;
   issued_date_attribute?: string;
   expiry_date_attribute?: string;
+  svg_template_url?: string;
+  svg_bindings?: Record<string, string>;
 }
 
 export interface OCAMeta {
