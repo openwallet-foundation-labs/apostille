@@ -1080,6 +1080,8 @@ export default function CredentialDefinitionsPage() {
                                   secondary_attribute: '',
                                   logo: '',
                                   background_image: '',
+                                  svg_template_url: '',
+                                  svg_bindings: {},
                                 });
                               }
                             }}
