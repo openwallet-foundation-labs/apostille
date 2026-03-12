@@ -188,7 +188,7 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
           />
 
           {/* Modal */}
-          <div className="relative w-full max-w-4xl max-h-[85vh] mx-4 bg-surface-50 rounded-xl shadow-2xl border border-border-secondary flex flex-col overflow-hidden">
+          <div className="relative w-full max-w-4xl h-[85vh] mx-4 bg-surface-50 rounded-xl shadow-2xl border border-border-secondary flex flex-col overflow-hidden">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border-secondary bg-surface-100">
               <div className="flex items-center gap-2">

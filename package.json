@@ -18,7 +18,7 @@
     "deploy:install": "YARN_ENABLE_IMMUTABLE_INSTALLS=false yarn install && yarn install:all",
     "dev:backend": "cd backend && yarn dev",
     "dev:frontend": "cd frontend && yarn dev",
-    "dev": "dotenv -e .env concurrently \"yarn dev:backend\" \"yarn dev:frontend\"",
+    "dev": "dotenv -e .env concurrently \"yarn dev:backend\" \"PORT=3000 yarn dev:frontend\"",
     "build:backend": "cd backend && yarn build",
     "build:frontend": "cd frontend && yarn build",
     "build": "yarn build:backend && yarn build:frontend",
