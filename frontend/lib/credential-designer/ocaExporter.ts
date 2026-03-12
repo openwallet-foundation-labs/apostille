@@ -122,6 +122,169 @@ export function exportCraftStateToOCA(craftState: CraftState): OCAOverlay {
   return overlay;
 }
 
+export function getSvgBindingsFromCraftState(craftState: CraftState): Record<string, string> {
+  const bindings: Record<string, string> = {};
+
+  for (const [nodeId, node] of Object.entries(craftState)) {
+    if (nodeId === 'ROOT') continue;
+    if (node.type?.resolvedName !== 'AttributeNode') continue;
+
+    const props = node.props as unknown as AttributeNodeProps;
+    if (props.attributeName) {
+      bindings[props.attributeName] = props.attributeName;
+    }
+    const displayLabel = (props.displayLabel || '').trim();
+    if (displayLabel && displayLabel !== props.attributeName) {
+      bindings[displayLabel] = props.attributeName;
+    }
+  }
+
+  return bindings;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function transformText(value: string, transform: TextNodeProps['textTransform']): string {
+  if (!value) return value;
+  switch (transform) {
+    case 'uppercase':
+      return value.toUpperCase();
+    case 'lowercase':
+      return value.toLowerCase();
+    case 'capitalize':
+      return value.replace(/\b\w/g, (c) => c.toUpperCase());
+    default:
+      return value;
+  }
+}
+
+function gradientCoords(angleDegrees: number): { x1: number; y1: number; x2: number; y2: number } {
+  const radians = (angleDegrees * Math.PI) / 180;
+  const x = Math.cos(radians);
+  const y = Math.sin(radians);
+  return {
+    x1: 0.5 - x * 0.5,
+    y1: 0.5 - y * 0.5,
+    x2: 0.5 + x * 0.5,
+    y2: 0.5 + y * 0.5,
+  };
+}
+
+export function generateSvgTemplateFromCraftState(
+  craftState: CraftState,
+  width: number,
+  height: number
+): string {
+  const defs: string[] = [];
+  const elements: string[] = [];
+  const metadata: string[] = [];
+
+  // External attribution for OCA overlays.
+  metadata.push(`<externalAttribution>Color</externalAttribution>`);
+
+  const rootNode = craftState.ROOT;
+  if (rootNode) {
+    const props = rootNode.props as unknown as CardContainerProps;
+    const borderRadius = props.borderRadius ?? 0;
+
+    if (props.backgroundGradient?.colors && props.backgroundGradient.colors.length > 1) {
+      const angle = props.backgroundGradient.angle ?? 135;
+      const coords = gradientCoords(angle);
+      const gradientId = 'bgGradient';
+      defs.push(
+        `<linearGradient id="${gradientId}" x1="${coords.x1}" y1="${coords.y1}" x2="${coords.x2}" y2="${coords.y2}">` +
+          `<stop offset="0%" stop-color="${props.backgroundGradient.colors[0]}" />` +
+          `<stop offset="100%" stop-color="${props.backgroundGradient.colors[1]}" />` +
+        `</linearGradient>`
+      );
+      elements.push(
+        `<rect x="0" y="0" width="${width}" height="${height}" rx="${borderRadius}" ry="${borderRadius}" fill="url(#${gradientId})" />`
+      );
+    } else if (props.backgroundColor) {
+      elements.push(
+        `<rect x="0" y="0" width="${width}" height="${height}" rx="${borderRadius}" ry="${borderRadius}" fill="${props.backgroundColor}" />`
+      );
+    }
+
+    if (props.backgroundImage && !props.backgroundImage.startsWith('data:')) {
+      elements.push(
+        `<image href="${escapeXml(props.backgroundImage)}" x="0" y="0" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice" />`
+      );
+    }
+  }
+
+  for (const [nodeId, node] of Object.entries(craftState)) {
+    if (nodeId === 'ROOT') continue;
+    const typeName = node.type?.resolvedName;
+
+    if (typeName === 'ImageNode') {
+      const props = node.props as unknown as ImageNodeProps;
+      const src = props.publicUrl || props.src;
+      if (!src || src.startsWith('data:')) continue;
+      const x = props.x ?? 0;
+      const y = props.y ?? 0;
+      const w = props.width ?? 40;
+      const h = props.height ?? 40;
+      elements.push(
+        `<image href="${escapeXml(src)}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet" />`
+      );
+      continue;
+    }
+
+    if (typeName === 'TextNode') {
+      const props = node.props as unknown as TextNodeProps;
+      const rawText =
+        props.isMetaField && props.metaKey
+          ? `{{meta.${props.metaKey}}}`
+          : props.text || '';
+      const text = escapeXml(transformText(rawText, props.textTransform));
+      const x = props.x ?? 0;
+      const y = props.y ?? 0;
+      const fontWeight =
+        props.fontWeight === 'medium' ? 500 : props.fontWeight === 'semibold' ? 600 : props.fontWeight;
+      const textAnchor =
+        props.textAlign === 'center' ? 'middle' : props.textAlign === 'right' ? 'end' : 'start';
+      const anchorX =
+        props.textAlign === 'center' && props.width ? x + props.width / 2
+          : props.textAlign === 'right' && props.width ? x + props.width
+          : x;
+
+      elements.push(
+        `<text x="${anchorX}" y="${y}" fill="${props.color}" font-size="${props.fontSize}" font-family="${escapeXml(props.fontFamily)}" font-weight="${fontWeight}" text-anchor="${textAnchor}" dominant-baseline="text-before-edge" letter-spacing="${props.letterSpacing || 0}">${text}</text>`
+      );
+      continue;
+    }
+
+    if (typeName === 'AttributeNode') {
+      const props = node.props as unknown as AttributeNodeProps;
+      const placeholderKey = (props.displayLabel || props.attributeName || '').trim();
+      const placeholder = `{{${placeholderKey}}}`;
+      const text = escapeXml(placeholder);
+      const x = props.x ?? 0;
+      const y = props.y ?? 0;
+      const fontWeight =
+        props.fontWeight === 'medium' ? 500 : props.fontWeight === 'semibold' ? 600 : props.fontWeight;
+      const textAnchor =
+        props.textAlign === 'center' ? 'middle' : props.textAlign === 'right' ? 'end' : 'start';
+
+      elements.push(
+        `<text x="${x}" y="${y}" fill="${props.color}" font-size="${props.fontSize}" font-family="Inter" font-weight="${fontWeight}" text-anchor="${textAnchor}" dominant-baseline="text-before-edge">${text}</text>`
+      );
+    }
+  }
+
+  const metadataBlock = metadata.length > 0 ? `<metadata>${metadata.join('')}</metadata>` : '';
+  const defsBlock = defs.length > 0 ? `<defs>${defs.join('')}</defs>` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${metadataBlock}${defsBlock}${elements.join('')}</svg>`;
+}
+
 /**
  * Imports OCA overlay data into Craft.js state
  * Updates existing nodes with OCA branding/meta values

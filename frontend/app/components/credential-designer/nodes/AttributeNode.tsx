@@ -149,8 +149,6 @@ export const AttributeNode: React.FC<Partial<AttributeNodeProps>> = (props) => {
 
 // Settings panel for AttributeNode
 function AttributeNodeSettings() {
-  const availableAttributes = useDesignerStore((s) => s.availableAttributes);
-
   const {
     actions: { setProp },
     attributeName,
@@ -178,18 +176,27 @@ function AttributeNodeSettings() {
     textAlign: node.data.props.textAlign,
   }));
 
+  const availableAttributes = useDesignerStore((s) => s.availableAttributes);
+  const hasSchemaAttributes = availableAttributes.length > 0;
+  const isInvalidAttribute = attributeName && !availableAttributes.includes(attributeName);
+
   return (
     <div className="space-y-4">
       <div>
         <label className="block text-sm font-medium text-text-secondary mb-1">
           Attribute Name
         </label>
-        {availableAttributes.length > 0 ? (
+        {hasSchemaAttributes ? (
           <select
             value={attributeName}
             onChange={(e) => setProp((props: AttributeNodeProps) => (props.attributeName = e.target.value))}
             className="w-full px-3 py-2 bg-surface-200 border border-border-primary rounded text-text-primary text-sm"
           >
+            {isInvalidAttribute && (
+              <option value={attributeName} disabled>
+                Invalid: {attributeName}
+              </option>
+            )}
             {availableAttributes.map((attr) => (
               <option key={attr} value={attr}>
                 {attr}
@@ -200,10 +207,15 @@ function AttributeNodeSettings() {
           <input
             type="text"
             value={attributeName}
-            onChange={(e) => setProp((props: AttributeNodeProps) => (props.attributeName = e.target.value))}
-            placeholder="e.g., name, degree, studentId"
-            className="w-full px-3 py-2 bg-surface-200 border border-border-primary rounded text-text-primary text-sm"
+            placeholder="No schema attributes available"
+            disabled
+            className="w-full px-3 py-2 bg-surface-200 border border-border-primary rounded text-text-primary text-sm disabled:opacity-60"
           />
+        )}
+        {isInvalidAttribute && (
+          <p className="mt-1 text-xs text-warning-500">
+            This attribute is not in the selected schema. Choose a valid schema attribute.
+          </p>
         )}
         <p className="mt-1 text-xs text-text-tertiary">
           This will show as {'{{' + attributeName + '}}'} and be replaced with actual credential data

@@ -12,6 +12,7 @@ type IceConfigResponse = { iceServers: IceServer[]; ttlSeconds?: number; expires
 
 function RemoteVideo({ stream, label }: { stream: MediaStream | null; label?: string }) {
   const ref = useRef<HTMLVideoElement | null>(null)
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null)
 
   useEffect(() => {
     if (ref.current && stream) {
@@ -22,15 +23,36 @@ function RemoteVideo({ stream, label }: { stream: MediaStream | null; label?: st
     }
   }, [stream, label])
 
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const handleLoaded = () => {
+      if (el.videoWidth && el.videoHeight) {
+        setAspectRatio(el.videoWidth / el.videoHeight)
+      }
+    }
+    el.addEventListener('loadedmetadata', handleLoaded)
+    return () => {
+      el.removeEventListener('loadedmetadata', handleLoaded)
+    }
+  }, [stream])
+
   return (
-    <div className="relative w-full h-full bg-surface-900 rounded-2xl overflow-hidden">
-      <video
-        ref={ref}
-        autoPlay
-        playsInline
-        muted={false}
-        className="absolute inset-0 w-full h-full object-cover"
-      />
+    <div className="relative w-full h-full bg-black rounded-2xl overflow-hidden">
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div
+          className="relative h-full max-w-full"
+          style={aspectRatio ? { aspectRatio } : undefined}
+        >
+          <video
+            ref={ref}
+            autoPlay
+            playsInline
+            muted={false}
+            className="absolute inset-0 w-full h-full object-contain"
+          />
+        </div>
+      </div>
       {label && (
         <div className="absolute bottom-4 left-4 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-sm">
           <span className="text-sm font-medium text-white">{label}</span>
@@ -95,6 +117,7 @@ export default function CallsPage() {
   const processedIdsRef = useRef<Set<string>>(new Set())
   const recentNotificationsRef = useRef<Map<string, number>>(new Map())
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidate[]>>(new Map())
+  const mountTimeRef = useRef<number>(Date.now())
   const [status, setStatus] = useState<'idle' | 'calling' | 'incoming' | 'connected'>('idle')
   const [callingPeer, setCallingPeer] = useState<Connection | null>(null)
 
@@ -352,6 +375,7 @@ export default function CallsPage() {
     if (!notifications || notifications.length === 0) return
     const now = Date.now()
     const DUPLICATE_WINDOW_MS = 1000
+    const OLDEST_ALLOWED_MS = mountTimeRef.current - 5000
 
     for (const [key, timestamp] of recentNotificationsRef.current.entries()) {
       if (now - timestamp > 5000) recentNotificationsRef.current.delete(key)
@@ -359,6 +383,11 @@ export default function CallsPage() {
 
     for (const n of notifications) {
       if (!n?.id || processedIdsRef.current.has(n.id)) continue
+      const createdAtMs = n.createdAt ? Date.parse(n.createdAt) : NaN
+      if (Number.isFinite(createdAtMs) && createdAtMs < OLDEST_ALLOWED_MS) {
+        processedIdsRef.current.add(n.id)
+        continue
+      }
 
       const p = n?.data
       let duplicateKey = `${n.type}:${p?.connectionId || ''}:${p?.thid || ''}`
@@ -497,7 +526,7 @@ export default function CallsPage() {
                 autoPlay
                 playsInline
                 muted
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain"
               />
             </div>
           </div>

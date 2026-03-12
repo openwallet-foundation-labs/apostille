@@ -11,7 +11,7 @@ import {
   type CredentialFormat,
 } from '../../../lib/api';
 import { credentialDesignerApi } from '../../../lib/credential-designer/api';
-import { exportCraftStateToOCA } from '../../../lib/credential-designer/ocaExporter';
+import { exportCraftStateToOCA, getSvgBindingsFromCraftState } from '../../../lib/credential-designer/ocaExporter';
 import { CardTemplate, CraftState } from '../../../lib/credential-designer/types';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
@@ -115,6 +115,8 @@ export default function CredentialDefinitionsPage() {
     secondary_attribute: '',
     logo: '',
     background_image: '',
+    svg_template_url: '',
+    svg_bindings: {} as Record<string, string>,
   });
 
   // Credential Designer Templates
@@ -262,18 +264,56 @@ export default function CredentialDefinitionsPage() {
         secondary_attribute: '',
         logo: '',
         background_image: '',
+        svg_template_url: '',
+        svg_bindings: {},
       });
       return;
     }
 
     const template = designerTemplates.find(t => t.id === templateId);
     if (template) {
+      const getRoleAttributeName = (craftState: CraftState, role: 'primary' | 'secondary'): string => {
+        for (const node of Object.values(craftState)) {
+          if (node.type?.resolvedName !== 'AttributeNode') continue;
+          const props = node.props as { role?: string; attributeName?: string };
+          if (props.role === role && props.attributeName) return props.attributeName;
+        }
+        return '';
+      };
+
       // Export OCA from the template's craft_state
       const overlay = exportCraftStateToOCA(template.craft_state as CraftState);
+      const svgBindingsFromCraft = getSvgBindingsFromCraftState(template.craft_state as CraftState);
+      const primaryPlaceholder = getRoleAttributeName(template.craft_state as CraftState, 'primary');
+      const secondaryPlaceholder = getRoleAttributeName(template.craft_state as CraftState, 'secondary');
+      const requestedPrimary = (overlay.branding as any)?.primary_attribute || (template.oca_branding as any)?.primary_attribute || '';
+      const requestedSecondary = (overlay.branding as any)?.secondary_attribute || (template.oca_branding as any)?.secondary_attribute || '';
+      if (primaryPlaceholder) {
+        if (requestedPrimary) {
+          svgBindingsFromCraft[primaryPlaceholder] = requestedPrimary;
+        } else {
+          delete svgBindingsFromCraft[primaryPlaceholder];
+        }
+      }
+      if (secondaryPlaceholder) {
+        if (requestedSecondary) {
+          svgBindingsFromCraft[secondaryPlaceholder] = requestedSecondary;
+        } else {
+          delete svgBindingsFromCraft[secondaryPlaceholder];
+        }
+      }
 
       // Also merge with any stored oca_branding and oca_meta
       const meta = { ...overlay.meta, ...template.oca_meta };
-      const branding = { ...overlay.branding, ...template.oca_branding };
+      const branding = {
+        ...overlay.branding,
+        ...template.oca_branding,
+        svg_bindings:
+          (template.oca_branding as any)?.svg_bindings &&
+          Object.keys((template.oca_branding as any).svg_bindings).length > 0
+            ? (template.oca_branding as any).svg_bindings
+            : svgBindingsFromCraft,
+      };
 
       // Update overlay meta fields
       setOverlayMeta({
@@ -292,6 +332,8 @@ export default function CredentialDefinitionsPage() {
         secondary_attribute: branding?.secondary_attribute || '',
         logo: branding?.logo || '',
         background_image: branding?.background_image || '',
+        svg_template_url: branding?.svg_template_url || '',
+        svg_bindings: branding?.svg_bindings || {},
       });
 
       // Auto-expand overlay fields section
@@ -356,6 +398,50 @@ export default function CredentialDefinitionsPage() {
     setOverlayData(null);
   };
 
+  const getAssetExtension = (mimeType: string) => {
+    switch (mimeType) {
+      case 'image/png':
+        return 'png';
+      case 'image/jpeg':
+      case 'image/jpg':
+        return 'jpg';
+      case 'image/svg+xml':
+        return 'svg';
+      case 'image/webp':
+        return 'webp';
+      case 'image/gif':
+        return 'gif';
+      default:
+        return 'img';
+    }
+  };
+
+  const uploadDataUrlAsset = async (
+    dataUrl: string,
+    assetType: 'logo' | 'background'
+  ) => {
+    const match = dataUrl.match(/^data:([^;]+);base64,/);
+    if (!match) return dataUrl;
+
+    const mimeType = match[1];
+    const extension = getAssetExtension(mimeType);
+
+    try {
+      const result = await credentialDesignerApi.uploadAsset({
+        template_id: selectedTemplateId || undefined,
+        asset_type: assetType,
+        file_name: `credential-${assetType}.${extension}`,
+        mime_type: mimeType,
+        content: dataUrl,
+      });
+
+      return result.asset.public_url || dataUrl;
+    } catch (error) {
+      console.warn('Failed to upload OCA asset, using data URL instead:', error);
+      return dataUrl;
+    }
+  };
+
   const handleCreateCredDef = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -370,27 +456,184 @@ export default function CredentialDefinitionsPage() {
     setError(null);
 
     try {
+      const selectedSchema =
+        credentialFormat === 'mso_mdoc'
+          ? undefined
+          : schemas.find((schema) => schema.id === selectedSchemaId);
+      const schemaAttributes = selectedSchema?.attributes || [];
+
+      const brandingForOverlay = { ...overlayBranding };
+      if (brandingForOverlay.logo && brandingForOverlay.logo.startsWith('data:')) {
+        brandingForOverlay.logo = await uploadDataUrlAsset(brandingForOverlay.logo, 'logo');
+      }
+      if (brandingForOverlay.background_image && brandingForOverlay.background_image.startsWith('data:')) {
+        brandingForOverlay.background_image = await uploadDataUrlAsset(
+          brandingForOverlay.background_image,
+          'background'
+        );
+      }
+
       // Build overlay if any fields are filled
       let overlay = undefined;
-      const hasMetaFields = Object.values(overlayMeta).some(v => v.trim() !== '');
-      const hasBrandingFields = overlayBranding.primary_background_color !== '#FFFFFF' ||
-        overlayBranding.secondary_background_color !== '#F5F5F5' ||
-        overlayBranding.primary_attribute.trim() !== '' ||
-        overlayBranding.secondary_attribute.trim() !== '' ||
-        overlayBranding.logo.trim() !== '' ||
-        overlayBranding.background_image.trim() !== '';
+
+      // If a designer template is selected, prefer its OCA data unless the user explicitly overrides a field in the form.
+      const selectedTemplate = useDesignerTemplate
+        ? designerTemplates.find((t) => t.id === selectedTemplateId)
+        : undefined;
+      const templateOverlay = selectedTemplate
+        ? exportCraftStateToOCA(selectedTemplate.craft_state as CraftState)
+        : undefined;
+      const getRoleAttributeName = (craftState: CraftState, role: 'primary' | 'secondary'): string => {
+        for (const node of Object.values(craftState)) {
+          if (node.type?.resolvedName !== 'AttributeNode') continue;
+          const props = node.props as { role?: string; attributeName?: string };
+          if (props.role === role && props.attributeName) return props.attributeName;
+        }
+        return '';
+      };
+      const templateSvgBindings = selectedTemplate
+        ? getSvgBindingsFromCraftState(selectedTemplate.craft_state as CraftState)
+        : {};
+      const templateMeta = {
+        ...(templateOverlay?.meta || {}),
+        ...(selectedTemplate?.oca_meta || {}),
+      } as Record<string, string>;
+      const templateBranding = {
+        ...(templateOverlay?.branding || {}),
+        ...(selectedTemplate?.oca_branding || {}),
+        svg_bindings:
+          (selectedTemplate?.oca_branding as any)?.svg_bindings &&
+          Object.keys((selectedTemplate?.oca_branding as any).svg_bindings).length > 0
+            ? (selectedTemplate?.oca_branding as any).svg_bindings
+            : templateSvgBindings,
+      } as Record<string, any>;
+
+      const effectiveMeta = {
+        name: overlayMeta.name.trim() || templateMeta.name || selectedTemplate?.name || '',
+        description:
+          overlayMeta.description.trim() || templateMeta.description || selectedTemplate?.description || '',
+        issuer: overlayMeta.issuer.trim() || templateMeta.issuer || '',
+        issuer_url: overlayMeta.issuer_url.trim() || templateMeta.issuer_url || '',
+        issuer_description: overlayMeta.issuer_description.trim() || templateMeta.issuer_description || '',
+      };
+
+      const requestedPrimaryAttribute =
+        brandingForOverlay.primary_attribute.trim() || templateBranding.primary_attribute || '';
+      const requestedSecondaryAttribute =
+        brandingForOverlay.secondary_attribute.trim() || templateBranding.secondary_attribute || '';
+
+      if (schemaAttributes.length > 0) {
+        if (requestedPrimaryAttribute && !schemaAttributes.includes(requestedPrimaryAttribute)) {
+          const message = `Primary attribute "${requestedPrimaryAttribute}" is not in schema attributes`;
+          console.warn(message);
+          setError(message);
+          return;
+        }
+        if (requestedSecondaryAttribute && !schemaAttributes.includes(requestedSecondaryAttribute)) {
+          const message = `Secondary attribute "${requestedSecondaryAttribute}" is not in schema attributes`;
+          console.warn(message);
+          setError(message);
+          return;
+        }
+      }
+
+      const effectiveBranding = {
+        primary_background_color:
+          brandingForOverlay.primary_background_color !== '#FFFFFF'
+            ? brandingForOverlay.primary_background_color
+            : templateBranding.primary_background_color || '#FFFFFF',
+        secondary_background_color:
+          brandingForOverlay.secondary_background_color !== '#F5F5F5'
+            ? brandingForOverlay.secondary_background_color
+            : templateBranding.secondary_background_color || '#F5F5F5',
+        primary_attribute: requestedPrimaryAttribute,
+        secondary_attribute: requestedSecondaryAttribute,
+        logo: brandingForOverlay.logo.trim() || templateBranding.logo || '',
+        background_image:
+          brandingForOverlay.background_image.trim() || templateBranding.background_image || '',
+        svg_template_url:
+          (brandingForOverlay.svg_template_url || '').trim() || templateBranding.svg_template_url || '',
+        svg_bindings:
+          brandingForOverlay.svg_bindings && Object.keys(brandingForOverlay.svg_bindings).length > 0
+            ? brandingForOverlay.svg_bindings
+            : templateBranding.svg_bindings || {},
+      };
+
+      if (selectedTemplate) {
+        const primaryPlaceholder = getRoleAttributeName(selectedTemplate.craft_state as CraftState, 'primary');
+        const secondaryPlaceholder = getRoleAttributeName(selectedTemplate.craft_state as CraftState, 'secondary');
+
+        if (primaryPlaceholder) {
+          if (requestedPrimaryAttribute) {
+            effectiveBranding.svg_bindings = {
+              ...effectiveBranding.svg_bindings,
+              [primaryPlaceholder]: requestedPrimaryAttribute,
+            };
+          } else {
+            const { [primaryPlaceholder]: _removed, ...rest } = effectiveBranding.svg_bindings || {};
+            effectiveBranding.svg_bindings = rest;
+          }
+        }
+
+        if (secondaryPlaceholder) {
+          if (requestedSecondaryAttribute) {
+            effectiveBranding.svg_bindings = {
+              ...effectiveBranding.svg_bindings,
+              [secondaryPlaceholder]: requestedSecondaryAttribute,
+            };
+          } else {
+            const { [secondaryPlaceholder]: _removed, ...rest } = effectiveBranding.svg_bindings || {};
+            effectiveBranding.svg_bindings = rest;
+          }
+        }
+      }
+
+      const hasMetaFields = Object.values(effectiveMeta).some((v) => v.trim() !== '');
+      const hasBrandingFields =
+        effectiveBranding.primary_background_color !== '#FFFFFF' ||
+        effectiveBranding.secondary_background_color !== '#F5F5F5' ||
+        effectiveBranding.primary_attribute.trim() !== '' ||
+        effectiveBranding.secondary_attribute.trim() !== '' ||
+        effectiveBranding.logo.trim() !== '' ||
+        effectiveBranding.background_image.trim() !== '' ||
+        (effectiveBranding.svg_template_url || '').trim() !== '' ||
+        (effectiveBranding.svg_bindings && Object.keys(effectiveBranding.svg_bindings).length > 0);
 
       if (hasMetaFields || hasBrandingFields) {
+        const brandingPayload: Record<string, unknown> = {};
+        if (effectiveBranding.primary_background_color !== '#FFFFFF') {
+          brandingPayload.primary_background_color = effectiveBranding.primary_background_color;
+        }
+        if (effectiveBranding.secondary_background_color !== '#F5F5F5') {
+          brandingPayload.secondary_background_color = effectiveBranding.secondary_background_color;
+        }
+        if (effectiveBranding.primary_attribute.trim() !== '') {
+          brandingPayload.primary_attribute = effectiveBranding.primary_attribute;
+        }
+        if (effectiveBranding.secondary_attribute.trim() !== '') {
+          brandingPayload.secondary_attribute = effectiveBranding.secondary_attribute;
+        }
+        if (effectiveBranding.logo.trim() !== '') {
+          brandingPayload.logo = effectiveBranding.logo;
+        }
+        if (effectiveBranding.background_image.trim() !== '') {
+          brandingPayload.background_image = effectiveBranding.background_image;
+        }
+        if ((effectiveBranding.svg_template_url || '').trim() !== '') {
+          brandingPayload.svg_template_url = effectiveBranding.svg_template_url;
+        }
+        if (effectiveBranding.svg_bindings && Object.keys(effectiveBranding.svg_bindings).length > 0) {
+          brandingPayload.svg_bindings = effectiveBranding.svg_bindings;
+        }
+
         overlay = {
           ...(hasMetaFields && {
             meta: Object.fromEntries(
-              Object.entries(overlayMeta).filter(([_, v]) => v.trim() !== '')
+              Object.entries(effectiveMeta).filter(([_, v]) => v.trim() !== '')
             )
           }),
           ...(hasBrandingFields && {
-            branding: Object.fromEntries(
-              Object.entries(overlayBranding).filter(([_, v]) => v.trim() !== '' && v !== '#FFFFFF' && v !== '#F5F5F5')
-            )
+            branding: brandingPayload
           }),
         };
       }
@@ -414,7 +657,6 @@ export default function CredentialDefinitionsPage() {
           overlay,
         });
       } else {
-        const selectedSchema = schemas.find(s => s.id === selectedSchemaId);
         if (!selectedSchema) {
           throw new Error('Selected schema not found');
         }
@@ -455,6 +697,8 @@ export default function CredentialDefinitionsPage() {
         secondary_attribute: '',
         logo: '',
         background_image: '',
+        svg_template_url: '',
+        svg_bindings: {},
       });
       // Reset mdoc state
       setMdocDoctype(MDL_DOCTYPE);
@@ -1265,26 +1509,62 @@ export default function CredentialDefinitionsPage() {
                           ) : overlayData ? (
                             <div className="bg-gradient-to-r from-surface-100 to-surface-200 dark:from-surface-800 dark:to-surface-700 p-4 rounded-lg border border-border-secondary">
                               {/* Preview Card */}
-                              {(overlayData.branding?.background_image || overlayData.branding?.logo) && (
+                              {(overlayData.branding || overlayData.meta) && (
                                 <div className="mb-4">
                                   <h5 className="text-xs font-semibold text-text-secondary uppercase mb-2">Preview</h5>
-                                  <div
-                                    className="relative rounded-lg overflow-hidden h-32 flex items-center justify-center"
-                                    style={{
-                                      backgroundColor: overlayData.branding?.primary_background_color || '#FFFFFF',
-                                      backgroundImage: overlayData.branding?.background_image ? `url(${overlayData.branding.background_image})` : undefined,
-                                      backgroundSize: 'cover',
-                                      backgroundPosition: 'center',
-                                    }}
-                                  >
-                                    {overlayData.branding?.logo && (
-                                      <img
-                                        src={overlayData.branding.logo}
-                                        alt="Credential Logo"
-                                        className="h-16 w-auto object-contain"
-                                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                      />
-                                    )}
+                                  <div className="flex justify-center">
+                                    <div
+                                      className="relative w-full max-w-xl rounded-2xl overflow-hidden shadow-md"
+                                      style={{
+                                        aspectRatio: '1.6 / 1',
+                                        background: overlayData.branding?.secondary_background_color
+                                          ? `linear-gradient(135deg, ${overlayData.branding?.primary_background_color || '#1e3a5f'}, ${overlayData.branding.secondary_background_color})`
+                                          : overlayData.branding?.primary_background_color || '#1e3a5f',
+                                      }}
+                                    >
+                                      {overlayData.branding?.background_image && (
+                                        <img
+                                          src={overlayData.branding.background_image}
+                                          alt="Card background"
+                                          className="absolute inset-0 h-full w-full object-cover opacity-90"
+                                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                        />
+                                      )}
+                                      <div className="relative z-10 flex h-full flex-col justify-between p-4 text-white">
+                                        <div className="flex items-start justify-between gap-3">
+                                          <div className="text-sm font-semibold tracking-wide">
+                                            {overlayData.meta?.issuer || overlayData.meta?.name || 'Credential'}
+                                          </div>
+                                          {overlayData.branding?.logo && (
+                                            <img
+                                              src={overlayData.branding.logo}
+                                              alt="Credential logo"
+                                              className="h-10 w-auto object-contain"
+                                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                            />
+                                          )}
+                                        </div>
+                                        <div className="space-y-1">
+                                          {overlayData.meta?.name && (
+                                            <div className="text-lg font-semibold">{overlayData.meta.name}</div>
+                                          )}
+                                          {overlayData.branding?.primary_attribute && (
+                                            <div className="text-base font-semibold">
+                                              {'{{'}
+                                              {overlayData.branding.primary_attribute}
+                                              {'}}'}
+                                            </div>
+                                          )}
+                                          {overlayData.branding?.secondary_attribute && (
+                                            <div className="text-sm opacity-80">
+                                              {'{{'}
+                                              {overlayData.branding.secondary_attribute}
+                                              {'}}'}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
                               )}
