@@ -334,6 +334,8 @@ export interface CredentialDefinitionOverlay {
     secondary_attribute?: string;
     logo?: string;
     background_image?: string;
+    svg_template_url?: string;
+    svg_bindings?: Record<string, string>;
   };
 }
 

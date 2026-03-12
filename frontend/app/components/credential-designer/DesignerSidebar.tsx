@@ -8,10 +8,7 @@ import { TextNode, ImageNode, AttributeNode } from './nodes';
 import { PresetTemplate } from '@/lib/credential-designer/types';
 
 export default function DesignerSidebar() {
-  const { connectors, query } = useEditor((state) => ({
-    // Subscribe to nodes to detect when attributes are dropped
-    nodeCount: Object.keys(state.nodes).length,
-  }));
+  const { connectors } = useEditor();
 
   // Use individual selectors to prevent unnecessary re-renders
   const sidebarTab = useDesignerStore((state) => state.sidebarTab);
@@ -23,57 +20,15 @@ export default function DesignerSidebar() {
 
   const [presets, setPresets] = useState<PresetTemplate[]>([]);
   const [loadingPresets, setLoadingPresets] = useState(false);
-  const [customAttribute, setCustomAttribute] = useState('');
-  const [customAttributes, setCustomAttributes] = useState<string[]>([]);
-
   // Refs for drag sources - these persist across renders
   const dragSourceRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const componentsRef = useRef<HTMLDivElement>(null);
   const attributesContainerRef = useRef<HTMLDivElement>(null);
 
-  // Combine available attributes with custom ones
-  const allAttributes = [...new Set([...availableAttributes, ...customAttributes])];
-
-  // Extract attributes from dropped nodes and add to list
-  useEffect(() => {
-    try {
-      const nodes = query.getSerializedNodes();
-      const droppedAttrs: string[] = [];
-
-      Object.values(nodes).forEach((node: any) => {
-        if (node.type?.resolvedName === 'AttributeNode' && node.props?.attributeName) {
-          droppedAttrs.push(node.props.attributeName);
-        }
-      });
-
-      // Add any new attributes that aren't already in customAttributes
-      const newAttrs = droppedAttrs.filter(
-        attr => !customAttributes.includes(attr) && !availableAttributes.includes(attr)
-      );
-
-      if (newAttrs.length > 0) {
-        setCustomAttributes(prev => [...new Set([...prev, ...newAttrs])]);
-      }
-    } catch (e) {
-      // Ignore errors during initial render
-    }
-  }, [query, availableAttributes]); // Re-run when nodes change
-
   // Load assets on mount
   useEffect(() => {
     loadAssets();
   }, [loadAssets]);
-
-  const handleAddCustomAttribute = () => {
-    if (customAttribute.trim() && !allAttributes.includes(customAttribute.trim())) {
-      setCustomAttributes([...customAttributes, customAttribute.trim()]);
-      setCustomAttribute('');
-    }
-  };
-
-  const handleRemoveCustomAttribute = (attr: string) => {
-    setCustomAttributes(customAttributes.filter(a => a !== attr));
-  };
 
   // Register a drag source and store ref
   const registerDragSource = useCallback((key: string, element: React.ReactElement) => {
@@ -155,43 +110,20 @@ export default function DesignerSidebar() {
           Credential Attributes
         </h3>
 
-        {/* Add Custom Attribute Input */}
-        <div className="flex gap-2 mb-3">
-          <input
-            type="text"
-            value={customAttribute}
-            onChange={(e) => setCustomAttribute(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddCustomAttribute()}
-            placeholder="Add attribute..."
-            className="flex-1 px-2 py-1.5 text-sm bg-surface-200 border border-border-primary rounded text-text-primary placeholder-text-tertiary focus:border-primary-500 focus:outline-none"
-          />
-          <button
-            onClick={handleAddCustomAttribute}
-            disabled={!customAttribute.trim()}
-            className="px-2 py-1.5 bg-primary-600 text-white rounded text-sm hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-        </div>
-
         {/* Attributes List - Each attribute is draggable */}
-        {allAttributes.length === 0 ? (
+        {availableAttributes.length === 0 ? (
           <div className="text-center py-4 text-text-tertiary text-xs">
-            <p>No attributes defined yet.</p>
-            <p className="mt-1">Add attributes above to place on the card.</p>
+            <p>No schema attributes available.</p>
+            <p className="mt-1">Add attributes in Create New Schema to place them on the card.</p>
           </div>
         ) : (
           <div ref={attributesContainerRef} className="space-y-1.5 max-h-64 overflow-y-auto">
-            {allAttributes.map((attr, index) => (
+            {[...new Set(availableAttributes)].map((attr, index) => (
               <DraggableAttribute
                 key={attr}
                 attr={attr}
                 index={index}
                 connectors={connectors}
-                isCustom={customAttributes.includes(attr)}
-                onRemove={() => handleRemoveCustomAttribute(attr)}
               />
             ))}
           </div>
@@ -311,14 +243,10 @@ function DraggableAttribute({
   attr,
   index,
   connectors,
-  isCustom,
-  onRemove,
 }: {
   attr: string;
   index: number;
   connectors: any;
-  isCustom: boolean;
-  onRemove: () => void;
 }) {
   const elementRef = useRef<HTMLDivElement>(null);
   const registeredRef = useRef(false);
@@ -349,16 +277,6 @@ function DraggableAttribute({
         </svg>
         <span className="text-sm text-text-primary">{attr}</span>
       </div>
-      {isCustom && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          className="opacity-0 group-hover:opacity-100 p-0.5 text-text-tertiary hover:text-error-500 transition-all"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      )}
     </div>
   );
 }

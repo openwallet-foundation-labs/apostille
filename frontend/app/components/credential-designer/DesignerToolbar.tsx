@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import { useEditor } from '@craftjs/core';
 import { toPng } from 'html-to-image';
 import { useDesignerStore } from '@/lib/credential-designer/store';
-import { exportCraftStateToOCA } from '@/lib/credential-designer/ocaExporter';
+import { credentialDesignerApi } from '@/lib/credential-designer/api';
+import { exportCraftStateToOCA, generateSvgTemplateFromCraftState, getSvgBindingsFromCraftState } from '@/lib/credential-designer/ocaExporter';
 
 interface DesignerToolbarProps {
   onSave?: (templateId: string) => void;
@@ -25,6 +26,8 @@ export default function DesignerToolbar({ onSave, onExport }: DesignerToolbarPro
     showGrid,
     previewMode,
     saveTemplate,
+    uploadAsset,
+    updateOCABranding,
     setZoom,
     setShowGrid,
     setPreviewMode,
@@ -57,6 +60,23 @@ export default function DesignerToolbar({ onSave, onExport }: DesignerToolbarPro
     }
   };
 
+  const svgToDataUrl = (svg: string): string => {
+    const encoded = btoa(unescape(encodeURIComponent(svg)));
+    return `data:image/svg+xml;base64,${encoded}`;
+  };
+
+  const dataUrlToFile = (dataUrl: string, filename: string): File => {
+    const [header, data] = dataUrl.split(',');
+    const mimeMatch = header.match(/:(.*?);/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/svg+xml';
+    const binary = atob(data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new File([bytes], filename, { type: mimeType });
+  };
+
   const handleSave = async () => {
     // Generate thumbnail before saving
     const thumbnail = await generateThumbnail();
@@ -65,8 +85,55 @@ export default function DesignerToolbar({ onSave, onExport }: DesignerToolbarPro
     }
 
     await saveTemplate();
-    if (currentTemplate?.id && onSave) {
-      onSave(currentTemplate.id);
+
+    const latestTemplate = useDesignerStore.getState().currentTemplate;
+    if (!latestTemplate) return;
+
+    const svgTemplate = generateSvgTemplateFromCraftState(
+      latestTemplate.craft_state,
+      latestTemplate.card_width || 340,
+      latestTemplate.card_height || 215
+    );
+    if (svgTemplate) {
+      const svgDataUrl = svgToDataUrl(svgTemplate);
+      const filename = `${latestTemplate.name || 'credential-template'}-${latestTemplate.id || 'new'}.svg`;
+      const svgFile = dataUrlToFile(svgDataUrl, filename);
+      try {
+        const asset = await uploadAsset(svgFile, 'decoration');
+        if (asset.public_url) {
+          const svgBindings = getSvgBindingsFromCraftState(latestTemplate.craft_state);
+          const nextBranding = {
+            ...(latestTemplate.oca_branding || {}),
+            svg_template_url: asset.public_url,
+            svg_bindings: svgBindings,
+          };
+
+          updateOCABranding({
+            svg_template_url: asset.public_url,
+            svg_bindings: svgBindings,
+          });
+
+          if (latestTemplate.id) {
+            await credentialDesignerApi.updateTemplate(latestTemplate.id, {
+              name: latestTemplate.name,
+              description: latestTemplate.description || undefined,
+              category: latestTemplate.category || undefined,
+              craft_state: latestTemplate.craft_state,
+              oca_branding: nextBranding,
+              oca_meta: latestTemplate.oca_meta || undefined,
+              card_width: latestTemplate.card_width,
+              card_height: latestTemplate.card_height,
+              thumbnail: latestTemplate.thumbnail || undefined,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to upload SVG template asset:', error);
+      }
+    }
+
+    if (latestTemplate.id && onSave) {
+      onSave(latestTemplate.id);
     }
   };
 

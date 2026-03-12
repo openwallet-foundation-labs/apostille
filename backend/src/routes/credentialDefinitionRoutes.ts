@@ -17,6 +17,23 @@ const router = Router();
 // Base URL for OpenID4VC
 const apiBaseUrl = process.env.API_URL || process.env.PUBLIC_URL || 'http://localhost:3002';
 
+function validateBrandingAttributes(
+  overlay: any,
+  schemaAttributes: string[]
+): string | null {
+  const primary = overlay?.branding?.primary_attribute;
+  if (primary && !schemaAttributes.includes(primary)) {
+    return `Primary attribute "${primary}" is not in schema attributes`;
+  }
+
+  const secondary = overlay?.branding?.secondary_attribute;
+  if (secondary && !schemaAttributes.includes(secondary)) {
+    return `Secondary attribute "${secondary}" is not in schema attributes`;
+  }
+
+  return null;
+}
+
 /**
  * Get all credential definitions for an agent
  * Returns both AnonCreds (from agent) and OID4VC (from database) credential definitions
@@ -210,6 +227,18 @@ router.route('/')
       }
 
       console.log('Using schema for credential definition:', schema);
+      const schemaAttributes = schema.schema?.attrNames || [];
+
+      if (overlay) {
+        const brandingError = validateBrandingAttributes(overlay, schemaAttributes);
+        if (brandingError) {
+          res.status(400).json({
+            success: false,
+            message: brandingError
+          });
+          return;
+        }
+      }
 
       // Handle OID4VC format - store in database, no ledger registration
       if (format === 'oid4vc') {
@@ -383,6 +412,42 @@ router.route('/')
           return;
         }
 
+        if (overlay) {
+          try {
+            const credentialDefinitionId = credDefResult.credentialDefinitionState.credentialDefinitionId
+            const existing = await db.query(
+              'SELECT id FROM credential_definitions WHERE tenant_id = $1 AND credential_definition_id = $2 AND format = $3',
+              [tenantId, credentialDefinitionId, 'anoncreds']
+            )
+
+            if (existing.rows.length > 0) {
+              await db.query(
+                `UPDATE credential_definitions
+                 SET overlay = $1, schema_attributes = $2, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $3`,
+                [JSON.stringify(overlay), JSON.stringify(schemaAttributes), existing.rows[0].id]
+              )
+            } else {
+              await db.query(
+                `INSERT INTO credential_definitions
+                 (tenant_id, credential_definition_id, schema_id, tag, format, overlay, schema_attributes)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [
+                  tenantId,
+                  credentialDefinitionId,
+                  schemaId,
+                  tag,
+                  'anoncreds',
+                  JSON.stringify(overlay),
+                  JSON.stringify(schemaAttributes),
+                ]
+              )
+            }
+          } catch (dbError: any) {
+            console.warn('Failed to persist anoncreds overlay to database:', dbError?.message || dbError)
+          }
+        }
+
         res.status(201).json({
           success: true,
           message: 'Credential definition created successfully',
@@ -486,6 +551,26 @@ router.route('/:credDefId/overlay')
     try {
       const { credDefId } = req.params;
 
+      // First try to fetch overlay from database (for OID4VC/mdoc and non-ledger cases)
+      try {
+        const result = await db.query(
+          'SELECT overlay FROM credential_definitions WHERE credential_definition_id = $1 ORDER BY created_at DESC LIMIT 1',
+          [credDefId]
+        )
+
+        const dbOverlay = result.rows?.[0]?.overlay
+        if (dbOverlay) {
+          res.status(200).json({
+            success: true,
+            credentialDefinitionId: credDefId,
+            overlay: dbOverlay
+          })
+          return
+        }
+      } catch (dbError: any) {
+        console.warn(`Failed to fetch overlay from database for ${credDefId}:`, dbError?.message || dbError)
+      }
+
       // For Kanon DIDs, we need to fetch from the ledger
       if (credDefId.includes('did:kanon')) {
         try {
@@ -530,7 +615,7 @@ router.route('/:credDefId/overlay')
         // For non-Kanon DIDs, overlays are not stored on ledger
         res.status(404).json({
           success: false,
-          message: `Overlay lookup not supported for non-Kanon credential definitions`
+          message: `No overlay found for credential definition ${credDefId}`
         });
       }
     } catch (error: any) {

@@ -84,19 +84,31 @@ export default function CredentialDesigner({
   // Store initial craft state - only set once per template load to prevent feedback loops
   const [initialCraftState, setInitialCraftState] = useState<string | undefined>(undefined);
 
+  // Debounce ref for state changes
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Track last serialized state to prevent unnecessary updates
+  const lastSerializedRef = useRef<string | null>(null);
+
+  // Track current template id to prevent stale updates
+  const currentTemplateIdRef = useRef<string | null>(null);
+
   // Load template or create new
   useEffect(() => {
     const initialize = async () => {
       editorInitializedRef.current = false;
       setInitialCraftState(undefined);
+      lastSerializedRef.current = null;
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
       if (templateId) {
         setIsInitializing(true);
         await loadTemplate(templateId);
         setIsInitializing(false);
-      } else if (!currentTemplate) {
-        createNewTemplate('New Template');
-        setIsInitializing(false);
       } else {
+        setIsInitializing(true);
+        createNewTemplate('New Template');
         setIsInitializing(false);
       }
     };
@@ -107,6 +119,10 @@ export default function CredentialDesigner({
   // Set initial craft state only once when template loads
   useEffect(() => {
     if (currentTemplate && !editorInitializedRef.current) {
+      if (templateId && currentTemplate.id !== templateId) {
+        return;
+      }
+      currentTemplateIdRef.current = currentTemplate.id || null;
       const serialized = currentTemplate.craft_state
         ? JSON.stringify(currentTemplate.craft_state)
         : undefined;
@@ -118,22 +134,16 @@ export default function CredentialDesigner({
       setInitialCraftState(serialized);
       editorInitializedRef.current = true;
     }
-  }, [currentTemplate]);
+  }, [currentTemplate, templateId]);
 
   // Set schema context - only run once on mount or when props actually change
   useEffect(() => {
     setAvailableAttributes(stableSchemaAttributes);
     setSchemaId(schemaId ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemaId]); // Only re-run if schemaId changes, not on every render
+  }, [schemaId, stableSchemaAttributes]);
 
   // Keyboard delete support will be handled by a separate component inside Editor
-
-  // Debounce ref for state changes
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Track last serialized state to prevent unnecessary updates
-  const lastSerializedRef = useRef<string | null>(null);
 
   // Cleanup debounce on unmount
   useEffect(() => {
@@ -163,7 +173,7 @@ export default function CredentialDesigner({
         if (serialized === lastSerializedRef.current) return;
 
         lastSerializedRef.current = serialized;
-        updateCraftState(nodes as CraftState);
+        updateCraftState(nodes as CraftState, currentTemplateIdRef.current || undefined);
       } catch (e) {
         console.error('[CredentialDesigner] Error in state change:', e);
       }
@@ -171,7 +181,9 @@ export default function CredentialDesigner({
   }, [updateCraftState]);
 
   // Show loading state while initializing or loading
-  if (isLoading || isInitializing || !currentTemplate) {
+  const shouldWaitForCraftState = !!currentTemplate?.craft_state && initialCraftState === undefined;
+
+  if (isLoading || isInitializing || !currentTemplate || shouldWaitForCraftState) {
     return (
       <div className="flex items-center justify-center h-screen bg-surface-100">
         <div className="text-text-secondary">Loading designer...</div>
