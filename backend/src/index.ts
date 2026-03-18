@@ -4,6 +4,7 @@ import http from 'http';
 import cors from 'cors';
 import type { CorsOptions } from 'cors';
 import dotenv from 'dotenv';
+import { createHmac, randomUUID } from 'crypto';
 import { initializeAgentSystem } from './services/agentService';
 import { userTable, passwordResetTokensTable, initializeCredentialDesignerTables, initializeOid4vcTables, initializeInstitutionalTables } from './db/schema';
 import agentRoutes from './routes/agentRoutes';
@@ -208,39 +209,46 @@ app.use('/api/openbadges', openBadgesRoutes);
 // WebRTC signaling - /turn endpoint is public (for ICE server config before auth)
 app.get('/api/webrtc/turn', async (req: Request, res: Response) => {
   try {
-    const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = []
+    const turnSecret = process.env.WEBRTC_TURN_AUTH_SECRET || ''
+    const turnRealm = process.env.WEBRTC_TURN_REALM || 'verifiable-ai'
+    const configuredTtl = Number(process.env.WEBRTC_TURN_CRED_TTL_SECONDS || 3600)
+    const ttlSeconds = Number.isFinite(configuredTtl) && configuredTtl > 0 ? Math.floor(configuredTtl) : 3600
+    const configuredUrls = process.env.WEBRTC_STUN_URLS || ''
 
-    // Always add public STUN servers (no auth needed)
-    iceServers.push({ urls: 'stun:stun.l.google.com:19302' })
-    iceServers.push({ urls: 'stun:stun1.l.google.com:19302' })
+    const stunUrls = new Set<string>([
+      'stun:stun.l.google.com:19302',
+      'stun:stun1.l.google.com:19302',
+    ])
+    const turnUrls = new Set<string>()
 
-    // Add custom TURN servers if configured (with auth)
-    if (process.env.WEBRTC_TURN_USERNAME && process.env.WEBRTC_TURN_CREDENTIAL) {
-      const username = process.env.WEBRTC_TURN_USERNAME
-      const credential = process.env.WEBRTC_TURN_CREDENTIAL
-      const urls = process.env.WEBRTC_STUN_URLS || ''
-
-      // Parse STUN/TURN URLs and add credentials only to TURN servers
-      for (const url of urls.split(',').map((u) => u.trim()).filter(Boolean)) {
-        if (url.startsWith('turn:') || url.startsWith('turns:')) {
-          iceServers.push({ urls: url, username, credential })
-        } else if (url.startsWith('stun:')) {
-          iceServers.push({ urls: url })
-        }
-      }
-
-      // If no TURN URLs were in WEBRTC_STUN_URLS, fall through to public TURN servers
-      const hasTurn = iceServers.some((s) =>
-        (typeof s.urls === 'string' ? s.urls : s.urls[0])?.startsWith('turn')
-      )
-    } else {
-      // Fallback to free public TURN servers
-      iceServers.push({ urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' })
-      iceServers.push({ urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' })
-      iceServers.push({ urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' })
+    for (const url of configuredUrls.split(',').map((u) => u.trim()).filter(Boolean)) {
+      if (url.startsWith('turn:') || url.startsWith('turns:')) turnUrls.add(url)
+      else if (url.startsWith('stun:')) stunUrls.add(url)
     }
 
-    res.json({ iceServers })
+    const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = []
+
+    for (const url of stunUrls) {
+      iceServers.push({ urls: url })
+    }
+
+    let expiresAt: string | undefined
+    if (turnUrls.size > 0) {
+      if (!turnSecret) {
+        return res.status(500).json({ success: false, message: 'TURN auth secret is not configured' })
+      }
+
+      const expiresAtUnix = Math.floor(Date.now() / 1000) + ttlSeconds
+      const username = `${expiresAtUnix}:${randomUUID()}`
+      const credential = createHmac('sha1', turnSecret).update(username).digest('base64')
+      expiresAt = new Date(expiresAtUnix * 1000).toISOString()
+
+      for (const url of turnUrls) {
+        iceServers.push({ urls: url, username, credential })
+      }
+    }
+
+    res.json({ iceServers, ttlSeconds, expiresAt, realm: turnRealm })
   } catch (e: any) {
     res.status(500).json({ success: false, message: e?.message || 'Internal error' })
   }

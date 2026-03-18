@@ -153,9 +153,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ajna-inc/vaults@npm:0.1.1":
-  version: 0.1.1
-  resolution: "@ajna-inc/vaults@npm:0.1.1"
+"@ajna-inc/vaults@npm:0.1.3":
+  version: 0.1.3
+  resolution: "@ajna-inc/vaults@npm:0.1.3"
   dependencies:
     "@aws-sdk/client-s3": "npm:^3.400.0"
     "@aws-sdk/s3-request-presigner": "npm:^3.400.0"
@@ -170,7 +170,7 @@ __metadata:
       optional: true
     "@aws-sdk/s3-request-presigner":
       optional: true
-  checksum: 10/b9ea3cccfd367a546ecf73fa6aedd0f9dcb7efb3361aaadc79d7c3fb3b9c1a503dc6590e8c5c9eb900b21067c14ecc4f91170db2c5415698d0c7fad71427d643
+  checksum: 10/5498fb3ce134479d85e4af2bee0b31b572f118feb5e4a813b5ac5c3653eaedd86e5ae5d26b14ff31fbd321d1dba3729d4a223ab792b411460acc6f4630e96fd5
   languageName: node
   linkType: hard
 
@@ -3171,6 +3171,125 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@napi-rs/canvas-android-arm64@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-android-arm64@npm:0.1.96"
+  conditions: os=android & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas-darwin-arm64@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-darwin-arm64@npm:0.1.96"
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas-darwin-x64@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-darwin-x64@npm:0.1.96"
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas-linux-arm-gnueabihf@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-linux-arm-gnueabihf@npm:0.1.96"
+  conditions: os=linux & cpu=arm
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas-linux-arm64-gnu@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-linux-arm64-gnu@npm:0.1.96"
+  conditions: os=linux & cpu=arm64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas-linux-arm64-musl@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-linux-arm64-musl@npm:0.1.96"
+  conditions: os=linux & cpu=arm64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas-linux-riscv64-gnu@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-linux-riscv64-gnu@npm:0.1.96"
+  conditions: os=linux & cpu=riscv64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas-linux-x64-gnu@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-linux-x64-gnu@npm:0.1.96"
+  conditions: os=linux & cpu=x64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas-linux-x64-musl@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-linux-x64-musl@npm:0.1.96"
+  conditions: os=linux & cpu=x64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas-win32-arm64-msvc@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-win32-arm64-msvc@npm:0.1.96"
+  conditions: os=win32 & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas-win32-x64-msvc@npm:0.1.96":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas-win32-x64-msvc@npm:0.1.96"
+  conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/canvas@npm:^0.1.95":
+  version: 0.1.96
+  resolution: "@napi-rs/canvas@npm:0.1.96"
+  dependencies:
+    "@napi-rs/canvas-android-arm64": "npm:0.1.96"
+    "@napi-rs/canvas-darwin-arm64": "npm:0.1.96"
+    "@napi-rs/canvas-darwin-x64": "npm:0.1.96"
+    "@napi-rs/canvas-linux-arm-gnueabihf": "npm:0.1.96"
+    "@napi-rs/canvas-linux-arm64-gnu": "npm:0.1.96"
+    "@napi-rs/canvas-linux-arm64-musl": "npm:0.1.96"
+    "@napi-rs/canvas-linux-riscv64-gnu": "npm:0.1.96"
+    "@napi-rs/canvas-linux-x64-gnu": "npm:0.1.96"
+    "@napi-rs/canvas-linux-x64-musl": "npm:0.1.96"
+    "@napi-rs/canvas-win32-arm64-msvc": "npm:0.1.96"
+    "@napi-rs/canvas-win32-x64-msvc": "npm:0.1.96"
+  dependenciesMeta:
+    "@napi-rs/canvas-android-arm64":
+      optional: true
+    "@napi-rs/canvas-darwin-arm64":
+      optional: true
+    "@napi-rs/canvas-darwin-x64":
+      optional: true
+    "@napi-rs/canvas-linux-arm-gnueabihf":
+      optional: true
+    "@napi-rs/canvas-linux-arm64-gnu":
+      optional: true
+    "@napi-rs/canvas-linux-arm64-musl":
+      optional: true
+    "@napi-rs/canvas-linux-riscv64-gnu":
+      optional: true
+    "@napi-rs/canvas-linux-x64-gnu":
+      optional: true
+    "@napi-rs/canvas-linux-x64-musl":
+      optional: true
+    "@napi-rs/canvas-win32-arm64-msvc":
+      optional: true
+    "@napi-rs/canvas-win32-x64-msvc":
+      optional: true
+  checksum: 10/65d2d40931bf76e5fbb5d46acbfb5b4a3ab5107b8220599dcb92ea2d0eec6f69164bbfc1b10ef02bdbf3d25ccb11b138cbd5f5769b933efdfffbbfeac056f35b
+  languageName: node
+  linkType: hard
+
 "@next/env@npm:16.1.1":
   version: 16.1.1
   resolution: "@next/env@npm:16.1.1"
@@ -3594,6 +3713,17 @@ __metadata:
   version: 0.11.0
   resolution: "@pkgjs/parseargs@npm:0.11.0"
   checksum: 10/115e8ceeec6bc69dff2048b35c0ab4f8bbee12d8bb6c1f4af758604586d802b6e669dcb02dda61d078de42c2b4ddce41b3d9e726d7daa6b4b850f4adbf7333ff
+  languageName: node
+  linkType: hard
+
+"@playwright/test@npm:^1.49.0":
+  version: 1.58.2
+  resolution: "@playwright/test@npm:1.58.2"
+  dependencies:
+    playwright: "npm:1.58.2"
+  bin:
+    playwright: cli.js
+  checksum: 10/58bf90139280a0235eeeb6049e9fb4db6425e98be1bf0cc17913b068eef616cf67be57bfb36dc4cb56bcf116f498ffd0225c4916e85db404b343ea6c5efdae13
   languageName: node
   linkType: hard
 
@@ -6200,7 +6330,7 @@ __metadata:
     "@ajna-inc/payments": "npm:^0.5.17"
     "@ajna-inc/poe": "npm:0.0.4"
     "@ajna-inc/signing": "npm:0.1.6"
-    "@ajna-inc/vaults": "npm:0.1.1"
+    "@ajna-inc/vaults": "npm:0.1.3"
     "@ajna-inc/webrtc": "npm:0.2.1"
     "@ajna-inc/workflow": "npm:0.5.37"
     "@ajna-inc/workflow-backend-express": "workspace:*"
@@ -6265,11 +6395,13 @@ __metadata:
   resolution: "apostille@workspace:."
   dependencies:
     "@openwallet-foundation/askar-nodejs": "npm:^0.4.1"
+    "@playwright/test": "npm:^1.49.0"
     buffer: "npm:^6.0.3"
     concurrently: "npm:^8.2.2"
     dotenv-cli: "npm:^7.3.0"
     jest-environment-jsdom: "npm:^29.7.0"
     motion: "npm:^12.23.3"
+    pdf-lib: "npm:^1.17.1"
   dependenciesMeta:
     "@animo-id/pex@4.1.1-alpha.0":
       built: false
@@ -9530,6 +9662,7 @@ __metadata:
     next: "npm:latest"
     next-auth: "npm:^4.24.11"
     pdf-lib: "npm:^1.17.1"
+    pdfjs-dist: "npm:^5.5.207"
     pkijs: "npm:^3.0.15"
     postcss: "npm:8.4.31"
     process: "npm:^0.11.10"
@@ -9589,12 +9722,31 @@ __metadata:
   languageName: node
   linkType: hard
 
+"fsevents@npm:2.3.2":
+  version: 2.3.2
+  resolution: "fsevents@npm:2.3.2"
+  dependencies:
+    node-gyp: "npm:latest"
+  checksum: 10/6b5b6f5692372446ff81cf9501c76e3e0459a4852b3b5f1fc72c103198c125a6b8c72f5f166bdd76ffb2fca261e7f6ee5565daf80dca6e571e55bcc589cc1256
+  conditions: os=darwin
+  languageName: node
+  linkType: hard
+
 "fsevents@npm:^2.3.2, fsevents@npm:~2.3.2":
   version: 2.3.3
   resolution: "fsevents@npm:2.3.3"
   dependencies:
     node-gyp: "npm:latest"
   checksum: 10/4c1ade961ded57cdbfbb5cac5106ec17bc8bccd62e16343c569a0ceeca83b9dfef87550b4dc5cbb89642da412b20c5071f304c8c464b80415446e8e155a038c0
+  conditions: os=darwin
+  languageName: node
+  linkType: hard
+
+"fsevents@patch:fsevents@npm%3A2.3.2#optional!builtin<compat/fsevents>":
+  version: 2.3.2
+  resolution: "fsevents@patch:fsevents@npm%3A2.3.2#optional!builtin<compat/fsevents>::version=2.3.2&hash=df0bf1"
+  dependencies:
+    node-gyp: "npm:latest"
   conditions: os=darwin
   languageName: node
   linkType: hard
@@ -12726,6 +12878,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"node-readable-to-web-readable-stream@npm:^0.4.2":
+  version: 0.4.2
+  resolution: "node-readable-to-web-readable-stream@npm:0.4.2"
+  checksum: 10/fb0a6254b557d090057cb412f6495de535c096108b61f14e175de7c92f31dca05283d121d7b46b8b0cc8b738a485d9a892492fbaf708af82187b4763836517ad
+  languageName: node
+  linkType: hard
+
 "node-releases@npm:^2.0.27":
   version: 2.0.27
   resolution: "node-releases@npm:2.0.27"
@@ -13175,6 +13334,21 @@ __metadata:
   languageName: node
   linkType: hard
 
+"pdfjs-dist@npm:^5.5.207":
+  version: 5.5.207
+  resolution: "pdfjs-dist@npm:5.5.207"
+  dependencies:
+    "@napi-rs/canvas": "npm:^0.1.95"
+    node-readable-to-web-readable-stream: "npm:^0.4.2"
+  dependenciesMeta:
+    "@napi-rs/canvas":
+      optional: true
+    node-readable-to-web-readable-stream:
+      optional: true
+  checksum: 10/1cf74bceaa979cabbb9dddb546a15b97537b54e1e2db5496d727491ac3e1b8774f07d7acf4c5a9c134cfb5bbc7762e2a48cd228e5d4268c87b13141e987201fa
+  languageName: node
+  linkType: hard
+
 "peek-readable@npm:^4.1.0":
   version: 4.1.0
   resolution: "peek-readable@npm:4.1.0"
@@ -13341,6 +13515,30 @@ __metadata:
     pvutils: "npm:^1.1.3"
     tslib: "npm:^2.8.1"
   checksum: 10/51ef42d8332fcb9e81f5cca9355b1a2aeacdbd77483cacc2a1c589036887a5a1dc6e7a68abd7cca2f0d605f68e038cc877e1fae4c38b3d358fa84a327dccaadd
+  languageName: node
+  linkType: hard
+
+"playwright-core@npm:1.58.2":
+  version: 1.58.2
+  resolution: "playwright-core@npm:1.58.2"
+  bin:
+    playwright-core: cli.js
+  checksum: 10/8a98fcf122167e8703d525db2252de0e3da4ab9110ab6ea9951247e52d846310eb25ea2c805e1b7ccb54b4010c44e5adc3a76aae6da02f34324ccc3e76683bb1
+  languageName: node
+  linkType: hard
+
+"playwright@npm:1.58.2":
+  version: 1.58.2
+  resolution: "playwright@npm:1.58.2"
+  dependencies:
+    fsevents: "npm:2.3.2"
+    playwright-core: "npm:1.58.2"
+  dependenciesMeta:
+    fsevents:
+      optional: true
+  bin:
+    playwright: cli.js
+  checksum: 10/d89d6c8a32388911b9aff9ee0f1a90076219f15c804f2b287db048b9e9cde182aea3131fac1959051d25189ed4218ec4272b137c83cd7f9cd24781cbc77edd86
   languageName: node
   linkType: hard
 

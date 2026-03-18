@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { pdfSigningApi, vaultApi, connectionApi } from '../../../lib/api';
 import { toast } from 'react-toastify';
 import { KeyManager, PdfSigner, StoredSigningKey } from '../../../lib/signing';
+import FieldPlacementEditor from '../../components/pdf-signing/FieldPlacementEditor';
+import SigningGuidedView from '../../components/pdf-signing/SigningGuidedView';
+import type { SigningField } from '../../components/pdf-signing/types';
 
 interface PdfVault {
   vaultId: string;
@@ -18,6 +21,7 @@ interface PdfVault {
   sharedAt?: string;
   returnedAt?: string;
   createdAt?: string;
+  signingFields?: SigningField[];
 }
 
 interface Connection {
@@ -116,6 +120,33 @@ export default function PdfSigningPage() {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
+  // Return to owner state
+  const [returning, setReturning] = useState(false);
+
+  // Verify modal state
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<{
+    hasSignature: boolean;
+    valid?: boolean;
+    signerName?: string;
+    reason?: string;
+    location?: string;
+    signingTime?: string;
+    error?: string;
+    message?: string;
+  } | null>(null);
+
+  // Field placement editor state (owner upload flow step 2)
+  const [showFieldEditor, setShowFieldEditor] = useState(false);
+  const [fieldEditorPdfData, setFieldEditorPdfData] = useState<ArrayBuffer | null>(null);
+
+  // Guided signing view state (signer flow)
+  const [showSigningView, setShowSigningView] = useState(false);
+  const [signingPdfData, setSigningPdfData] = useState<ArrayBuffer | null>(null);
+  const [signingFields, setSigningFields] = useState<SigningField[]>([]);
+  const [stampedPdfBytes, setStampedPdfBytes] = useState<Uint8Array | null>(null);
+
   // Load signing keys from IndexedDB
   const loadSigningKeys = useCallback(async () => {
     try {
@@ -194,7 +225,8 @@ export default function PdfSigningPage() {
     loadData();
   }, [loadData]);
 
-  const handleUpload = async () => {
+  // Step 1 of upload: validate inputs, read file, show field editor
+  const handleUploadStep1 = async () => {
     if (!uploadFile || !uploadConnectionId) {
       toast.error('Please select a PDF and a recipient connection');
       return;
@@ -205,19 +237,30 @@ export default function PdfSigningPage() {
       return;
     }
 
-    // Verify connection has KEM keys ready
     const kemStatus = kemStatuses[uploadConnectionId];
     if (!kemStatus?.ready) {
       toast.error('Please select a connection with encryption keys ready');
       return;
     }
 
+    // Read file into ArrayBuffer for the PDF viewer
+    const data = await uploadFile.arrayBuffer();
+    setFieldEditorPdfData(data);
+    setShowUploadModal(false);
+    setShowFieldEditor(true);
+  };
+
+  // Step 2 of upload: after field placement, upload the PDF with fields
+  const handleUploadWithFields = async (fields: SigningField[]) => {
+    if (!uploadFile || !uploadConnectionId) return;
+
+    setShowFieldEditor(false);
+    setFieldEditorPdfData(null);
     setUploading(true);
     try {
-      const response = await pdfSigningApi.upload(uploadFile, uploadConnectionId, uploadDescription);
+      const response = await pdfSigningApi.upload(uploadFile, uploadConnectionId, uploadDescription, fields);
       if (response.success) {
         toast.success('PDF uploaded and encrypted successfully!');
-        setShowUploadModal(false);
         setUploadFile(null);
         setUploadConnectionId('');
         setUploadDescription('');
@@ -229,6 +272,42 @@ export default function PdfSigningPage() {
     } finally {
       setUploading(false);
     }
+  };
+
+  // Initiate signing: download PDF, check for signing fields, then guided or direct
+  const handleInitiateSign = async (vault: PdfVault) => {
+    setSelectedVault(vault);
+    setSigning(true);
+    try {
+      toast.info('Downloading document...');
+      const pdfBlob = await pdfSigningApi.download(vault.vaultId);
+      const pdfArrayBuffer = await pdfBlob.arrayBuffer();
+      const fields = vault.signingFields || [];
+
+      if (fields.length > 0) {
+        // Has signing fields — show guided signing view
+        setSigningPdfData(pdfArrayBuffer);
+        setSigningFields(fields);
+        setShowSigningView(true);
+      } else {
+        // No fields — go straight to sign modal (legacy flow)
+        setShowSignModal(true);
+      }
+    } catch (error: any) {
+      console.error('Failed to download PDF for signing:', error);
+      toast.error(error.message || 'Failed to load document');
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  // Called when signer finishes guided view — stamped PDF ready, now show key/password modal
+  const handleGuidedSignComplete = (stamped: Uint8Array) => {
+    setStampedPdfBytes(stamped);
+    setShowSigningView(false);
+    setSigningPdfData(null);
+    setSigningFields([]);
+    setShowSignModal(true);
   };
 
   const handleSign = async () => {
@@ -246,19 +325,25 @@ export default function PdfSigningPage() {
         throw new Error('Invalid password or key not found');
       }
 
-      // Step 2: Download the PDF from vault (decrypted via KEM keys on backend)
-      toast.info('Downloading document...');
-      const pdfBlob = await pdfSigningApi.download(selectedVault.vaultId);
-      const pdfBytes = new Uint8Array(await pdfBlob.arrayBuffer());
+      let pdfBytes: Uint8Array;
+      if (stampedPdfBytes) {
+        // Guided flow: use pre-stamped PDF
+        pdfBytes = stampedPdfBytes;
+      } else {
+        // Legacy flow: download fresh
+        toast.info('Downloading document...');
+        const pdfBlob = await pdfSigningApi.download(selectedVault.vaultId);
+        pdfBytes = new Uint8Array(await pdfBlob.arrayBuffer());
+      }
 
-      // Step 3: Sign the PDF locally in the browser
+      // Sign the PDF locally in the browser
       toast.info('Signing document locally...');
       const signedPdfBytes = await PdfSigner.signPdf(pdfBytes, signingKey, {
         reason: signReason || undefined,
         location: signLocation || undefined,
       });
 
-      // Step 4: Upload the signed PDF back to the server
+      // Upload the signed PDF back to the server
       toast.info('Uploading signed document...');
       const response = await pdfSigningApi.uploadSigned(
         selectedVault.vaultId,
@@ -270,6 +355,7 @@ export default function PdfSigningPage() {
         toast.success('PDF signed successfully! Your private key never left your browser.');
         setShowSignModal(false);
         setSelectedVault(null);
+        setStampedPdfBytes(null);
         resetSignForm();
         loadData();
       }
@@ -338,6 +424,47 @@ export default function PdfSigningPage() {
       toast.error(error.message || 'Failed to download PDF');
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleReturn = async (vault: PdfVault) => {
+    const ownerConnectionId = vault.ownerConnectionId || vault.signerConnectionId;
+    if (!ownerConnectionId) {
+      toast.error('Cannot determine owner connection ID');
+      return;
+    }
+
+    setReturning(true);
+    try {
+      const response = await pdfSigningApi.returnSigned(vault.vaultId, ownerConnectionId);
+      if (response.success) {
+        toast.success('Signed PDF returned to owner!');
+        loadData();
+      }
+    } catch (error: any) {
+      console.error('Failed to return signed PDF:', error);
+      toast.error(error.message || 'Failed to return signed PDF');
+    } finally {
+      setReturning(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (!selectedVault) return;
+
+    setVerifying(true);
+    setVerificationResult(null);
+    try {
+      const response = await pdfSigningApi.verify(selectedVault.vaultId);
+      if (response.success) {
+        setVerificationResult(response);
+      }
+    } catch (error: any) {
+      console.error('Failed to verify signature:', error);
+      toast.error(error.message || 'Failed to verify signature');
+      setShowVerifyModal(false);
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -721,6 +848,16 @@ export default function PdfSigningPage() {
                   <button
                     onClick={() => {
                       setSelectedVault(vault);
+                      setVerificationResult(null);
+                      setShowVerifyModal(true);
+                    }}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    Verify
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedVault(vault);
                       setShowDownloadModal(true);
                     }}
                     className="btn btn-sm btn-secondary"
@@ -764,13 +901,11 @@ export default function PdfSigningPage() {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => {
-                      setSelectedVault(vault);
-                      setShowSignModal(true);
-                    }}
+                    onClick={() => handleInitiateSign(vault)}
+                    disabled={signing}
                     className="btn btn-sm btn-primary"
                   >
-                    Sign
+                    {signing && selectedVault?.vaultId === vault.vaultId ? 'Loading...' : 'Sign'}
                   </button>
                   <button
                     onClick={() => {
@@ -815,13 +950,21 @@ export default function PdfSigningPage() {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => {
-                      setSelectedVault(vault);
-                      setShowShareModal(true);
-                    }}
+                    onClick={() => handleReturn(vault)}
+                    disabled={returning}
                     className="btn btn-sm btn-primary"
                   >
-                    Return to Owner
+                    {returning ? 'Returning...' : 'Return to Owner'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedVault(vault);
+                      setVerificationResult(null);
+                      setShowVerifyModal(true);
+                    }}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    Verify
                   </button>
                   <button
                     onClick={() => {
@@ -863,15 +1006,27 @@ export default function PdfSigningPage() {
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setSelectedVault(vault);
-                    setShowDownloadModal(true);
-                  }}
-                  className="btn btn-sm btn-secondary"
-                >
-                  Download
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedVault(vault);
+                      setVerificationResult(null);
+                      setShowVerifyModal(true);
+                    }}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    Verify
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedVault(vault);
+                      setShowDownloadModal(true);
+                    }}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    Download
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -967,11 +1122,11 @@ export default function PdfSigningPage() {
                 Cancel
               </button>
               <button
-                onClick={handleUpload}
+                onClick={handleUploadStep1}
                 disabled={!uploadFile || !uploadConnectionId || !kemStatuses[uploadConnectionId]?.ready || uploading}
                 className="btn btn-primary"
               >
-                {uploading ? 'Uploading...' : 'Upload & Send'}
+                {uploading ? 'Uploading...' : 'Next: Place Fields'}
               </button>
             </div>
           </div>
@@ -1515,6 +1670,157 @@ export default function PdfSigningPage() {
               >
                 {downloading ? 'Downloading...' : 'Download'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Field Placement Editor (Owner upload step 2) */}
+      {showFieldEditor && fieldEditorPdfData && (
+        <FieldPlacementEditor
+          pdfData={fieldEditorPdfData}
+          onComplete={handleUploadWithFields}
+          onCancel={() => {
+            setShowFieldEditor(false);
+            setFieldEditorPdfData(null);
+            setShowUploadModal(true); // Go back to step 1
+          }}
+        />
+      )}
+
+      {/* Guided Signing View (Signer flow) */}
+      {showSigningView && signingPdfData && (
+        <SigningGuidedView
+          pdfData={signingPdfData}
+          fields={signingFields}
+          signerName=""
+          onComplete={handleGuidedSignComplete}
+          onCancel={() => {
+            setShowSigningView(false);
+            setSigningPdfData(null);
+            setSigningFields([]);
+            setSelectedVault(null);
+          }}
+        />
+      )}
+
+      {/* Verify Signature Modal */}
+      {showVerifyModal && selectedVault && (
+        <div className="modal-backdrop">
+          <div className="modal-container max-w-md">
+            <div className="px-6 py-4 border-b border-border-primary">
+              <h3 className="text-lg font-semibold text-text-primary">Verify Signature</h3>
+              <p className="text-sm text-text-tertiary">{selectedVault.filename || 'Unnamed PDF'}</p>
+            </div>
+
+            <div className="px-6 py-4 space-y-4">
+              {verifying && (
+                <div className="flex flex-col items-center py-6">
+                  <svg className="animate-spin h-8 w-8 text-primary-500 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                  <p className="text-text-secondary">Verifying signature...</p>
+                </div>
+              )}
+
+              {!verifying && verificationResult && !verificationResult.hasSignature && (
+                <div className="text-center py-6">
+                  <svg className="mx-auto h-12 w-12 text-text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  <p className="mt-3 text-text-secondary font-medium">No Signature Found</p>
+                  <p className="text-sm text-text-tertiary mt-1">This PDF does not contain a digital signature.</p>
+                </div>
+              )}
+
+              {!verifying && verificationResult && verificationResult.hasSignature && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    {verificationResult.valid ? (
+                      <span className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded-full">
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Valid Signature
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded-full">
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Invalid Signature
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="bg-surface-50 dark:bg-surface-800 rounded-lg p-4 space-y-2">
+                    {verificationResult.signerName && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-text-tertiary">Signer</span>
+                        <span className="text-text-primary font-medium">{verificationResult.signerName}</span>
+                      </div>
+                    )}
+                    {verificationResult.reason && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-text-tertiary">Reason</span>
+                        <span className="text-text-primary">{verificationResult.reason}</span>
+                      </div>
+                    )}
+                    {verificationResult.location && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-text-tertiary">Location</span>
+                        <span className="text-text-primary">{verificationResult.location}</span>
+                      </div>
+                    )}
+                    {verificationResult.signingTime && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-text-tertiary">Signed At</span>
+                        <span className="text-text-primary">{new Date(verificationResult.signingTime).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {verificationResult.error && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-text-tertiary">Error</span>
+                        <span className="text-red-600 dark:text-red-400">{verificationResult.error}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {!verifying && !verificationResult && (
+                <div className="p-3 bg-primary-50 dark:bg-primary-900/20 rounded-md text-sm text-primary-700 dark:text-primary-300">
+                  <div className="flex items-start gap-2">
+                    <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                    </svg>
+                    <span>The document will be decrypted and its digital signature verified.</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-border-primary flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowVerifyModal(false);
+                  setSelectedVault(null);
+                  setVerificationResult(null);
+                }}
+                className="btn btn-secondary"
+              >
+                Close
+              </button>
+              {!verificationResult && (
+                <button
+                  onClick={handleVerify}
+                  disabled={verifying}
+                  className="btn btn-primary"
+                >
+                  {verifying ? 'Verifying...' : 'Verify Signature'}
+                </button>
+              )}
             </div>
           </div>
         </div>

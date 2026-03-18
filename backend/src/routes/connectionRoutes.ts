@@ -302,8 +302,6 @@ router.route('/messages/:connectionId')
     }
   });
 
-// KEM key exchange tag for storing local keypairs
-const KEM_KEYPAIR_TAG = 'kem-keypair-connection';
 // Tag for pending KEM key exchange requests (must match agentService.ts)
 const KEM_PENDING_REQUEST_TAG = 'kem-pending-request';
 
@@ -336,11 +334,7 @@ router.route('/:connectionId/kem-status')
       }
 
       // Check if we have a local KEM keypair for this connection
-      const localKeypairs = await agent.genericRecords.findAllByQuery({
-        type: KEM_KEYPAIR_TAG,
-        connectionId: connectionId,
-      });
-      const hasLocalKey = localKeypairs.length > 0;
+      const hasLocalKey = await agent.modules.vaults.hasLocalKeypair(connectionId);
 
       // Check if we have peer's KEM key stored
       let hasPeerKey = await agent.modules.vaults.hasPeerKemKey(connectionId);
@@ -456,42 +450,20 @@ router.route('/:connectionId/exchange-keys')
       }
 
       // Check if we already have a keypair for this connection
-      const existingKeypairs = await agent.genericRecords.findAllByQuery({
-        type: KEM_KEYPAIR_TAG,
-        connectionId: connectionId,
-      });
+      const existingKeypair = await agent.modules.vaults.getLocalKeypair(connectionId);
 
       let keypair: { kid: string; publicKey: Uint8Array; secretKey: Uint8Array };
 
-      if (existingKeypairs.length > 0) {
-        // Use existing keypair
-        const existing = existingKeypairs[0];
-        keypair = {
-          kid: existing.content.kid as string,
-          publicKey: new Uint8Array(Buffer.from(existing.content.publicKey as string, 'base64url')),
-          secretKey: new Uint8Array(Buffer.from(existing.content.secretKey as string, 'base64url')),
-        };
+      if (existingKeypair) {
+        keypair = existingKeypair;
         console.log(`[KEM] Using existing keypair for connection ${connectionId}: kid=${keypair.kid}`);
       } else {
         // Generate new KEM keypair
         keypair = agent.modules.vaults.generateKemKeypair();
         console.log(`[KEM] Generated new keypair for connection ${connectionId}: kid=${keypair.kid}`);
 
-        // Store the keypair locally (including secret key for decryption)
-        await agent.genericRecords.save({
-          content: {
-            kid: keypair.kid,
-            publicKey: Buffer.from(keypair.publicKey).toString('base64url'),
-            secretKey: Buffer.from(keypair.secretKey).toString('base64url'),
-            connectionId: connectionId,
-            createdAt: new Date().toISOString(),
-          },
-          tags: {
-            type: KEM_KEYPAIR_TAG,
-            connectionId: connectionId,
-            kid: keypair.kid,
-          },
-        });
+        // Store the keypair locally via vaults API
+        await agent.modules.vaults.storeLocalKeypair(connectionId, keypair);
       }
 
       // Send our public key to the peer via a special basic message
@@ -573,21 +545,12 @@ router.route('/:connectionId/accept-key-exchange')
       }
 
       // Check if we already have a keypair (shouldn't happen, but check anyway)
-      const existingKeypairs = await agent.genericRecords.findAllByQuery({
-        type: KEM_KEYPAIR_TAG,
-        connectionId: connectionId,
-      });
+      const existingKeypair = await agent.modules.vaults.getLocalKeypair(connectionId);
 
       let keypair: { kid: string; publicKey: Uint8Array; secretKey: Uint8Array };
 
-      if (existingKeypairs.length > 0) {
-        // Use existing keypair
-        const existing = existingKeypairs[0];
-        keypair = {
-          kid: existing.content.kid as string,
-          publicKey: new Uint8Array(Buffer.from(existing.content.publicKey as string, 'base64url')),
-          secretKey: new Uint8Array(Buffer.from(existing.content.secretKey as string, 'base64url')),
-        };
+      if (existingKeypair) {
+        keypair = existingKeypair;
         console.log(`[KEM] Using existing keypair for accept: ${keypair.kid}`);
       } else {
         // Generate new KEM keypair
@@ -595,20 +558,7 @@ router.route('/:connectionId/accept-key-exchange')
         console.log(`[KEM] Generated new keypair for accept: ${keypair.kid}`);
 
         // Store the keypair locally
-        await agent.genericRecords.save({
-          content: {
-            kid: keypair.kid,
-            publicKey: Buffer.from(keypair.publicKey).toString('base64url'),
-            secretKey: Buffer.from(keypair.secretKey).toString('base64url'),
-            connectionId: connectionId,
-            createdAt: new Date().toISOString(),
-          },
-          tags: {
-            type: KEM_KEYPAIR_TAG,
-            connectionId: connectionId,
-            kid: keypair.kid,
-          },
-        });
+        await agent.modules.vaults.storeLocalKeypair(connectionId, keypair);
       }
 
       // Send our public key back to the peer

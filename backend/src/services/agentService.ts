@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { Agent, ConsoleLogger, LogLevel, DidsModule, HttpOutboundTransport, WsOutboundTransport, ConnectionsModule, CredentialsModule, AutoAcceptCredential, V2CredentialProtocol, ProofsModule, AutoAcceptProof, V2ProofProtocol, ConnectionEventTypes, DidExchangeState, InjectionSymbols, BasicMessageEventTypes, WebDidResolver } from '@credo-ts/core';
-import type { BasicMessageStateChangedEvent } from '@credo-ts/core';
+// BasicMessageStateChangedEvent type used implicitly in KEM handler event typing
 import { agentDependencies, HttpInboundTransport, WsInboundTransport } from '@credo-ts/node';
 import { AskarModule } from '@credo-ts/askar';
 import { ariesAskar } from '@hyperledger/aries-askar-nodejs';
@@ -628,9 +628,7 @@ const setupConnectionListener = async (agent: Agent) => {
     })
 }
 
-// KEM key exchange tag (must match connectionRoutes.ts)
-const KEM_KEYPAIR_TAG = 'kem-keypair-connection';
-// Tag for pending KEM key exchange requests
+// Tag for pending KEM key exchange requests (kept in genericRecords)
 const KEM_PENDING_REQUEST_TAG = 'kem-pending-request';
 
 /**
@@ -678,12 +676,9 @@ const processExistingKemMessages = async (agent: Agent<any>) => {
             console.log(`[KEM] Stored peer key for connection ${connectionId}`);
 
             // Check if we already have a local keypair
-            const existingKeypairs = await agent.genericRecords.findAllByQuery({
-                type: KEM_KEYPAIR_TAG,
-                connectionId: connectionId,
-            });
+            const hasLocalKey = await agent.modules.vaults.hasLocalKeypair(connectionId);
 
-            if (existingKeypairs.length === 0) {
+            if (!hasLocalKey) {
                 // Check if we already have a pending request
                 const existingPending = await agent.genericRecords.findAllByQuery({
                     type: KEM_PENDING_REQUEST_TAG,
@@ -721,12 +716,18 @@ const processExistingKemMessages = async (agent: Agent<any>) => {
  * Stores the peer's key and creates a pending request for the user to accept
  */
 const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
-    // Check if agent.events is available (may not be for some tenant agent configurations)
-    if (!agent.events) {
-        console.warn('[KEM] agent.events not available, skipping KEM handler setup');
+    // Use eventEmitter (Credo 0.5.x) or events (Credo 0.6+)
+    const emitter = (agent as any).eventEmitter || (agent as any).events;
+    if (!emitter) {
+        console.warn('[KEM] agent.eventEmitter/events not available, skipping KEM handler setup');
         return;
     }
-    agent.events.on<BasicMessageStateChangedEvent>(BasicMessageEventTypes.BasicMessageStateChanged, async ({ payload }) => {
+    console.log('[KEM] Setting up KEM key exchange handler');
+    emitter.on(BasicMessageEventTypes.BasicMessageStateChanged, async (event: any) => {
+        // Get the tenant context from the event metadata
+        const { payload } = event;
+        const contextCorrelationId = event.metadata?.contextCorrelationId;
+
         try {
             const { basicMessageRecord } = payload;
             const { content, connectionId, role } = basicMessageRecord;
@@ -747,33 +748,41 @@ const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
                 return; // Not a KEM key exchange message
             }
 
-            console.log(`[KEM] Received key exchange from connection ${connectionId}: kid=${kemData.kid}`);
+            console.log(`[KEM] Received key exchange from connection ${connectionId}: kid=${kemData.kid}, context=${contextCorrelationId}`);
 
-            // Store peer's public key in connection metadata
+            // Resolve the correct agent context via getAgent() (uses cached sessions)
+            let targetAgent: any = agent;
+            if (contextCorrelationId && contextCorrelationId !== 'default') {
+                try {
+                    targetAgent = await getAgent({ tenantId: contextCorrelationId });
+                    console.log(`[KEM] Using tenant agent context: ${contextCorrelationId}`);
+                } catch (e: any) {
+                    console.warn(`[KEM] Could not get tenant agent for ${contextCorrelationId}: ${e.message}`);
+                }
+            }
+
+            // Store peer's public key in connection metadata using the correct agent context
             const publicKeyBytes = new Uint8Array(Buffer.from(kemData.publicKey, 'base64url'));
-            await agent.modules.vaults.storePeerKemKey(connectionId, {
+            await targetAgent.modules.vaults.storePeerKemKey(connectionId, {
                 kid: kemData.kid,
                 publicKey: publicKeyBytes,
             });
             console.log(`[KEM] Stored peer key for connection ${connectionId}`);
 
             // Check if we already have a local keypair (meaning we initiated the exchange)
-            const existingKeypairs = await agent.genericRecords.findAllByQuery({
-                type: KEM_KEYPAIR_TAG,
-                connectionId: connectionId,
-            });
+            const hasLocalKey = await targetAgent.modules.vaults.hasLocalKeypair(connectionId);
 
-            if (existingKeypairs.length === 0) {
+            if (!hasLocalKey) {
                 // We didn't initiate - this is an incoming request
                 // Check if we already have a pending request for this connection
-                const existingPending = await agent.genericRecords.findAllByQuery({
+                const existingPending = await targetAgent.genericRecords.findAllByQuery({
                     type: KEM_PENDING_REQUEST_TAG,
                     connectionId: connectionId,
                 });
 
                 if (existingPending.length === 0) {
                     // Store as a pending request for the user to accept
-                    await agent.genericRecords.save({
+                    await targetAgent.genericRecords.save({
                         content: {
                             connectionId: connectionId,
                             peerKid: kemData.kid,
