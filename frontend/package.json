@@ -30,6 +30,7 @@
     "next": "latest",
     "next-auth": "^4.24.11",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.5.207",
     "pkijs": "^3.0.15",
     "pvutils": "^1.1.3",
     "qrcode.react": "^4.2.0",

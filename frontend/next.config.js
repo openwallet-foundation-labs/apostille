@@ -52,6 +52,7 @@ const nextConfig = {
       fs: false,
       net: false,
       tls: false,
+      canvas: false,
       crypto: isServer ? false : require.resolve('crypto-browserify'),
       stream: isServer ? false : require.resolve('stream-browserify'),
       http: false,

@@ -30,7 +30,7 @@
     "@ajna-inc/payments": "^0.5.17",
     "@ajna-inc/poe": "0.0.4",
     "@ajna-inc/signing": "0.1.6",
-    "@ajna-inc/vaults": "0.1.1",
+    "@ajna-inc/vaults": "0.1.3",
     "@ajna-inc/webrtc": "0.2.1",
     "@ajna-inc/workflow": "0.5.37",
     "@ajna-inc/workflow-backend-express": "workspace:*",
