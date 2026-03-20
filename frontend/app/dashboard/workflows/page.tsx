@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { workflowApi, connectionApi } from '@/lib/api'
+import { workflowApi, connectionApi, credentialDefinitionApi } from '@/lib/api'
 import { useAuth } from '../../context/AuthContext'
 import { runtimeConfig } from '@/lib/runtimeConfig'
 import {
@@ -33,7 +33,7 @@ const WorkflowBuilder = dynamic(
 // Template 1: Application with Approval - Manual approve/reject by issuer
 const applicationApprovalTemplate = {
   template_id: 'credential-application',
-  version: '1.0.0',
+  version: '1.0.1',
   title: 'Application & Approval',
   instance_policy: { mode: 'multi_per_connection' },
   sections: [{ name: 'Application' }],
@@ -58,8 +58,8 @@ const applicationApprovalTemplate = {
         cred_def_id: 'REPLACE_WITH_CRED_DEF_ID',
         to_ref: 'holder',
         attribute_plan: {
-          Name: { source: 'context', path: 'application.Name', required: true },
-          Email: { source: 'context', path: 'application.Email', required: true },
+          Name: { source: 'context', path: 'Name', required: true },
+          Email: { source: 'context', path: 'Email', required: true },
           Status: { source: 'static', value: 'Approved' },
         },
         options: { comment: 'Approved credential' },
@@ -475,6 +475,8 @@ interface TemplateListItem {
   hash?: string
 }
 
+const WORKFLOW_CONNECTION_STORAGE_KEY = 'workflows.selectedConnectionId'
+
 interface Instance {
   id: string
   instance_id: string
@@ -515,6 +517,49 @@ function WorkflowsContent() {
   // Error/success state
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  const validateTemplateCredDefs = useCallback(async (template: any): Promise<string | null> => {
+    const profileCredDefIds: Array<{ profileId: string; credDefId: string }> = []
+
+    const credentialProfiles = template?.catalog?.credential_profiles || {}
+    Object.entries(credentialProfiles).forEach(([profileId, profile]) => {
+      const credDefId = (profile as { cred_def_id?: string })?.cred_def_id
+      if (typeof credDefId === 'string') {
+        profileCredDefIds.push({ profileId, credDefId })
+      }
+    })
+
+    const proofProfiles = template?.catalog?.proof_profiles || {}
+    Object.entries(proofProfiles).forEach(([profileId, profile]) => {
+      const credDefId = (profile as { cred_def_id?: string })?.cred_def_id
+      if (typeof credDefId === 'string') {
+        profileCredDefIds.push({ profileId, credDefId })
+      }
+    })
+
+    if (profileCredDefIds.length === 0) return null
+
+    const credDefsRes = await credentialDefinitionApi.getAll()
+    const validIds = new Set(
+      (credDefsRes?.credentialDefinitions || [])
+        .map((cd: { credentialDefinitionId?: string }) => cd.credentialDefinitionId)
+        .filter((id: string | undefined): id is string => !!id)
+    )
+
+    const invalidProfiles = profileCredDefIds.filter(({ credDefId }) => {
+      if (!credDefId.trim()) return true
+      if (credDefId.startsWith('REPLACE_WITH_')) return true
+      return !validIds.has(credDefId)
+    })
+
+    if (invalidProfiles.length === 0) return null
+
+    const invalidList = invalidProfiles
+      .map(({ profileId, credDefId }) => `${profileId}: ${credDefId || '(empty)'}`)
+      .join(', ')
+    return `Invalid credential definition ID(s) in template: ${invalidList}. ` +
+      'Select valid credential definitions before publishing or starting.'
+  }, [])
 
   // Get instance status using the hook
   const { status: instanceStatus, loading: statusLoading, refresh: refreshStatus } = useWorkflowStatus(
@@ -593,9 +638,21 @@ function WorkflowsContent() {
 
   // Initial load
   useEffect(() => {
+    if (typeof window !== 'undefined' && !selectedConnectionId) {
+      const savedId = window.localStorage.getItem(WORKFLOW_CONNECTION_STORAGE_KEY)
+      if (savedId) setSelectedConnectionId(savedId)
+    }
     loadConnections()
     loadTemplates()
   }, [loadConnections, loadTemplates])
+
+  // Persist selected connection
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (selectedConnectionId) {
+      window.localStorage.setItem(WORKFLOW_CONNECTION_STORAGE_KEY, selectedConnectionId)
+    }
+  }, [selectedConnectionId])
 
   // Load instances when connection changes
   useEffect(() => {
@@ -642,6 +699,18 @@ function WorkflowsContent() {
     setError(null)
 
     try {
+      // Validate template credential definitions before starting
+      try {
+        const validationError = await validateTemplateCredDefs(template)
+        if (validationError) {
+          setError(validationError)
+          return
+        }
+      } catch (e) {
+        setError((e as Error).message || 'Failed to validate credential definitions')
+        return
+      }
+
       // First, publish the template if it's a preset
       const isPreset = PRESET_TEMPLATES.some(p => p.template_id === template.template_id)
       if (isPreset) {
@@ -690,6 +759,15 @@ function WorkflowsContent() {
     setError(null)
 
     try {
+      console.debug('[workflow][advance] start', {
+        instanceId: activeInstanceId,
+        event,
+        input,
+        state: (instanceStatus as any)?.state,
+        template_id: (instanceStatus as any)?.template_id,
+        template_version: (instanceStatus as any)?.template_version,
+        contextKeys: Object.keys((instanceStatus as any)?.context || {}),
+      })
       // Best-effort: ensure the template exists on the counterparty
       try {
         const status = instanceStatus as any
@@ -709,8 +787,18 @@ function WorkflowsContent() {
       await workflowApi.advance({ instance_id: activeInstanceId, event, input, idempotency_key })
       await refreshStatus()
     } catch (err) {
+      const anyErr = err as any
+      console.error('[workflow][advance] failed', {
+        instanceId: activeInstanceId,
+        event,
+        input,
+        error: anyErr?.message,
+        code: anyErr?.code,
+        status: instanceStatus,
+        response: anyErr?.data,
+      })
       console.error('Advance failed:', err)
-      setError((err as Error).message || 'Advance failed')
+      setError((anyErr as Error).message || 'Advance failed')
     }
   }
 
@@ -738,6 +826,12 @@ function WorkflowsContent() {
     setError(null)
     try {
       const parsed = JSON.parse(json)
+      const validationError = await validateTemplateCredDefs(parsed)
+      if (validationError) {
+        setError(validationError)
+        return
+      }
+
       await workflowApi.publish(parsed)
       await loadTemplates()
       setSuccess(`Template "${parsed.template_id}" published successfully`)
@@ -822,11 +916,18 @@ function WorkflowsContent() {
         loading={loadingTemplates}
         onStart={(t) => handleStartWorkflow({ template_id: t.template_id, version: t.version, title: t.title })}
         onEnsure={handleEnsureTemplate}
-        onEdit={(t) => {
-          // Load template into builder
-          const preset = PRESET_TEMPLATES.find(p => p.template_id === t.template_id)
-          if (preset) {
-            setTemplateJson(JSON.stringify(preset, null, 2))
+        onEdit={async (t) => {
+          try {
+            const resp = await workflowApi.getTemplate(t.template_id, t.version)
+            if (resp?.template) {
+              setTemplateJson(JSON.stringify(resp.template, null, 2))
+            } else {
+              const preset = PRESET_TEMPLATES.find(p => p.template_id === t.template_id)
+              if (preset) setTemplateJson(JSON.stringify(preset, null, 2))
+            }
+          } catch {
+            const preset = PRESET_TEMPLATES.find(p => p.template_id === t.template_id)
+            if (preset) setTemplateJson(JSON.stringify(preset, null, 2))
           }
           setShowBuilder(true)
         }}

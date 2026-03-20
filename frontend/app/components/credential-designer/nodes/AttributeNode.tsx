@@ -98,8 +98,31 @@ export const AttributeNode: React.FC<Partial<AttributeNodeProps>> = (props) => {
         return 'bg-blue-500';
       case 'secondary':
         return 'bg-purple-500';
+      case 'tertiary':
+        return 'bg-emerald-500';
+      case 'quaternary':
+        return 'bg-amber-500';
+      case 'quinary':
+        return 'bg-rose-500';
       default:
         return 'bg-surface-500';
+    }
+  };
+
+  const getRoleBadgeLabel = () => {
+    switch (role) {
+      case 'primary':
+        return '1';
+      case 'secondary':
+        return '2';
+      case 'tertiary':
+        return '3';
+      case 'quaternary':
+        return '4';
+      case 'quinary':
+        return '5';
+      default:
+        return '';
     }
   };
 
@@ -128,7 +151,7 @@ export const AttributeNode: React.FC<Partial<AttributeNodeProps>> = (props) => {
           {`{{${attributeName}}}`}
           {role !== 'regular' && (
             <span className={`text-[8px] px-1 rounded ${getRoleBadgeColor()} text-white`}>
-              {role === 'primary' ? '1' : '2'}
+              {getRoleBadgeLabel()}
             </span>
           )}
         </span>
@@ -234,6 +257,9 @@ function AttributeNodeSettings() {
           <option value="regular">Regular</option>
           <option value="primary">Primary (maps to OCA primary_attribute)</option>
           <option value="secondary">Secondary (maps to OCA secondary_attribute)</option>
+          <option value="tertiary">Tertiary (maps to OCA tertiary_attribute)</option>
+          <option value="quaternary">Quaternary (maps to OCA quaternary_attribute)</option>
+          <option value="quinary">Quinary (maps to OCA quinary_attribute)</option>
         </select>
       </div>
 

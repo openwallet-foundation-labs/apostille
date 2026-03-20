@@ -49,6 +49,9 @@ export interface OCABranding {
   secondary_background_color?: string;
   primary_attribute?: string;
   secondary_attribute?: string;
+  tertiary_attribute?: string;
+  quaternary_attribute?: string;
+  quinary_attribute?: string;
   logo?: string;
   background_image?: string;
   background_image_slice?: string;
@@ -142,7 +145,7 @@ export interface AttributeNodeProps {
   fontSize: number;
   fontWeight: 'normal' | 'medium' | 'semibold' | 'bold';
   color: string;
-  role: 'primary' | 'secondary' | 'regular';
+  role: 'primary' | 'secondary' | 'tertiary' | 'quaternary' | 'quinary' | 'regular';
   dateRole?: 'issued' | 'expiry' | 'none'; // For date attributes
   showLabel: boolean;
   labelPosition: 'above' | 'inline' | 'below';

@@ -36,7 +36,7 @@ export function PropertiesPanel() {
     return (
       <button
         onClick={() => setPropertiesPanelOpen(true)}
-        className="absolute right-2 top-2 z-10 bg-surface-100 dark:bg-surface-800 text-text-secondary hover:text-text-primary px-2 py-1 rounded text-xs border border-border-secondary"
+        className="absolute right-18 top-6 z-10 bg-surface-100 dark:bg-surface-800 text-text-secondary hover:text-text-primary px-2 py-1 rounded text-xs border border-border-secondary"
       >
         Properties
       </button>

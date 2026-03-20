@@ -113,11 +113,18 @@ export default function CredentialDefinitionsPage() {
     secondary_background_color: '#F5F5F5',
     primary_attribute: '',
     secondary_attribute: '',
+    tertiary_attribute: '',
+    quaternary_attribute: '',
+    quinary_attribute: '',
     logo: '',
     background_image: '',
     svg_template_url: '',
     svg_bindings: {} as Record<string, string>,
   });
+  const [availableAttributeRoles, setAvailableAttributeRoles] = useState<string[]>([
+    'primary_attribute',
+    'secondary_attribute',
+  ]);
 
   // Credential Designer Templates
   const [designerTemplates, setDesignerTemplates] = useState<CardTemplate[]>([]);
@@ -238,6 +245,7 @@ export default function CredentialDefinitionsPage() {
     setSelectedTemplateId('');
     setUseDesignerTemplate(false);
     setCredentialFormat('anoncreds');
+    setAvailableAttributeRoles(['primary_attribute', 'secondary_attribute']);
     // Reset mdoc state
     setMdocDoctype(MDL_DOCTYPE);
     setMdocSelectedAttributes([]);
@@ -262,11 +270,16 @@ export default function CredentialDefinitionsPage() {
         secondary_background_color: '#F5F5F5',
         primary_attribute: '',
         secondary_attribute: '',
+        tertiary_attribute: '',
+        quaternary_attribute: '',
+        quinary_attribute: '',
         logo: '',
         background_image: '',
         svg_template_url: '',
         svg_bindings: {},
       });
+      setAvailableAttributeRoles(['primary_attribute', 'secondary_attribute']);
+      setAvailableAttributeRoles(['primary_attribute', 'secondary_attribute']);
       return;
     }
 
@@ -330,11 +343,28 @@ export default function CredentialDefinitionsPage() {
         secondary_background_color: branding?.secondary_background_color || '#F5F5F5',
         primary_attribute: branding?.primary_attribute || '',
         secondary_attribute: branding?.secondary_attribute || '',
+        tertiary_attribute: branding?.tertiary_attribute || '',
+        quaternary_attribute: branding?.quaternary_attribute || '',
+        quinary_attribute: branding?.quinary_attribute || '',
         logo: branding?.logo || '',
         background_image: branding?.background_image || '',
         svg_template_url: branding?.svg_template_url || '',
         svg_bindings: branding?.svg_bindings || {},
       });
+
+      const roleOrder = [
+        'primary_attribute',
+        'secondary_attribute',
+        'tertiary_attribute',
+        'quaternary_attribute',
+        'quinary_attribute',
+      ];
+      const presentRoles = roleOrder.filter((roleKey) => {
+        const overlayValue = (overlay.branding as any)?.[roleKey];
+        const templateValue = (template.oca_branding as any)?.[roleKey];
+        return overlayValue !== undefined || templateValue !== undefined;
+      });
+      setAvailableAttributeRoles(presentRoles.length > 0 ? presentRoles : ['primary_attribute', 'secondary_attribute']);
 
       // Auto-expand overlay fields section
       setShowOverlayFields(true);
@@ -521,6 +551,12 @@ export default function CredentialDefinitionsPage() {
         brandingForOverlay.primary_attribute.trim() || templateBranding.primary_attribute || '';
       const requestedSecondaryAttribute =
         brandingForOverlay.secondary_attribute.trim() || templateBranding.secondary_attribute || '';
+      const requestedTertiaryAttribute =
+        brandingForOverlay.tertiary_attribute.trim() || templateBranding.tertiary_attribute || '';
+      const requestedQuaternaryAttribute =
+        brandingForOverlay.quaternary_attribute.trim() || templateBranding.quaternary_attribute || '';
+      const requestedQuinaryAttribute =
+        brandingForOverlay.quinary_attribute.trim() || templateBranding.quinary_attribute || '';
 
       if (schemaAttributes.length > 0) {
         if (requestedPrimaryAttribute && !schemaAttributes.includes(requestedPrimaryAttribute)) {
@@ -531,6 +567,24 @@ export default function CredentialDefinitionsPage() {
         }
         if (requestedSecondaryAttribute && !schemaAttributes.includes(requestedSecondaryAttribute)) {
           const message = `Secondary attribute "${requestedSecondaryAttribute}" is not in schema attributes`;
+          console.warn(message);
+          setError(message);
+          return;
+        }
+        if (requestedTertiaryAttribute && !schemaAttributes.includes(requestedTertiaryAttribute)) {
+          const message = `Tertiary attribute "${requestedTertiaryAttribute}" is not in schema attributes`;
+          console.warn(message);
+          setError(message);
+          return;
+        }
+        if (requestedQuaternaryAttribute && !schemaAttributes.includes(requestedQuaternaryAttribute)) {
+          const message = `Quaternary attribute "${requestedQuaternaryAttribute}" is not in schema attributes`;
+          console.warn(message);
+          setError(message);
+          return;
+        }
+        if (requestedQuinaryAttribute && !schemaAttributes.includes(requestedQuinaryAttribute)) {
+          const message = `Quinary attribute "${requestedQuinaryAttribute}" is not in schema attributes`;
           console.warn(message);
           setError(message);
           return;
@@ -548,6 +602,9 @@ export default function CredentialDefinitionsPage() {
             : templateBranding.secondary_background_color || '#F5F5F5',
         primary_attribute: requestedPrimaryAttribute,
         secondary_attribute: requestedSecondaryAttribute,
+        tertiary_attribute: requestedTertiaryAttribute,
+        quaternary_attribute: requestedQuaternaryAttribute,
+        quinary_attribute: requestedQuinaryAttribute,
         logo: brandingForOverlay.logo.trim() || templateBranding.logo || '',
         background_image:
           brandingForOverlay.background_image.trim() || templateBranding.background_image || '',
@@ -594,6 +651,9 @@ export default function CredentialDefinitionsPage() {
         effectiveBranding.secondary_background_color !== '#F5F5F5' ||
         effectiveBranding.primary_attribute.trim() !== '' ||
         effectiveBranding.secondary_attribute.trim() !== '' ||
+        (effectiveBranding.tertiary_attribute || '').trim() !== '' ||
+        (effectiveBranding.quaternary_attribute || '').trim() !== '' ||
+        (effectiveBranding.quinary_attribute || '').trim() !== '' ||
         effectiveBranding.logo.trim() !== '' ||
         effectiveBranding.background_image.trim() !== '' ||
         (effectiveBranding.svg_template_url || '').trim() !== '' ||
@@ -612,6 +672,15 @@ export default function CredentialDefinitionsPage() {
         }
         if (effectiveBranding.secondary_attribute.trim() !== '') {
           brandingPayload.secondary_attribute = effectiveBranding.secondary_attribute;
+        }
+        if ((effectiveBranding.tertiary_attribute || '').trim() !== '') {
+          brandingPayload.tertiary_attribute = effectiveBranding.tertiary_attribute;
+        }
+        if ((effectiveBranding.quaternary_attribute || '').trim() !== '') {
+          brandingPayload.quaternary_attribute = effectiveBranding.quaternary_attribute;
+        }
+        if ((effectiveBranding.quinary_attribute || '').trim() !== '') {
+          brandingPayload.quinary_attribute = effectiveBranding.quinary_attribute;
         }
         if (effectiveBranding.logo.trim() !== '') {
           brandingPayload.logo = effectiveBranding.logo;
@@ -695,11 +764,15 @@ export default function CredentialDefinitionsPage() {
         secondary_background_color: '#F5F5F5',
         primary_attribute: '',
         secondary_attribute: '',
+        tertiary_attribute: '',
+        quaternary_attribute: '',
+        quinary_attribute: '',
         logo: '',
         background_image: '',
         svg_template_url: '',
         svg_bindings: {},
       });
+      setAvailableAttributeRoles(['primary_attribute', 'secondary_attribute']);
       // Reset mdoc state
       setMdocDoctype(MDL_DOCTYPE);
       setMdocSelectedAttributes([]);
@@ -721,6 +794,40 @@ export default function CredentialDefinitionsPage() {
     if (!schema) return schemaId;
     return `${schema.name} (${schema.version})`;
   };
+
+  const selectedSchema = schemas.find((schema) => schema.id === selectedSchemaId);
+  const requiredAttributeCount =
+    credentialFormat === 'mso_mdoc' ? 0 : (selectedSchema?.attributes?.length || 0);
+  const templateAttributeRoleKeys = [
+    'primary_attribute',
+    'secondary_attribute',
+    'tertiary_attribute',
+    'quaternary_attribute',
+    'quinary_attribute',
+  ] as const;
+  const getTemplateAttributeCount = (template: CardTemplate) => {
+    const overlay = exportCraftStateToOCA(template.craft_state as CraftState);
+    const branding = {
+      ...(overlay?.branding || {}),
+      ...(template.oca_branding || {}),
+    } as Record<string, unknown>;
+
+    return templateAttributeRoleKeys.reduce((count, roleKey) => {
+      const value = branding[roleKey];
+      if (typeof value === 'string' && value.trim() !== '') {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+  };
+  const selectedTemplate = designerTemplates.find((template) => template.id === selectedTemplateId);
+  const selectedTemplateAttributeCount = selectedTemplate
+    ? getTemplateAttributeCount(selectedTemplate)
+    : 0;
+  const selectedTemplateMissingRequired =
+    requiredAttributeCount > 0 &&
+    Boolean(selectedTemplateId) &&
+    selectedTemplateAttributeCount < requiredAttributeCount;
 
   return (
     <div className="space-y-6">
@@ -1073,16 +1180,19 @@ export default function CredentialDefinitionsPage() {
                                   issuer_url: '',
                                   issuer_description: '',
                                 });
-                                setOverlayBranding({
-                                  primary_background_color: '#FFFFFF',
-                                  secondary_background_color: '#F5F5F5',
-                                  primary_attribute: '',
-                                  secondary_attribute: '',
-                                  logo: '',
-                                  background_image: '',
-                                  svg_template_url: '',
-                                  svg_bindings: {},
-                                });
+      setOverlayBranding({
+        primary_background_color: '#FFFFFF',
+        secondary_background_color: '#F5F5F5',
+        primary_attribute: '',
+        secondary_attribute: '',
+        tertiary_attribute: '',
+        quaternary_attribute: '',
+        quinary_attribute: '',
+        logo: '',
+        background_image: '',
+        svg_template_url: '',
+        svg_bindings: {},
+      });
                               }
                             }}
                             className="h-4 w-4 text-primary-600 focus:ring-blue-500 border-border-secondary rounded"
@@ -1104,42 +1214,49 @@ export default function CredentialDefinitionsPage() {
                                 Select Card Design Template
                               </label>
                               <div className="grid grid-cols-2 gap-3 max-h-48 overflow-y-auto">
-                                {designerTemplates.map((template) => (
-                                  <div
-                                    key={template.id}
-                                    onClick={() => handleTemplateSelect(template.id)}
-                                    className={`p-3 border rounded-lg cursor-pointer transition-all ${
-                                      selectedTemplateId === template.id
-                                        ? 'border-primary-500 bg-blue-50 ring-2 ring-blue-200'
-                                        : 'border-border-secondary hover:border-border-secondary hover:bg-surface-100 dark:bg-surface-800'
-                                    }`}
-                                  >
-                                    {/* Template Preview */}
+                                {designerTemplates.map((template) => {
+                                  const templateAttributeCount = getTemplateAttributeCount(template);
+                                  const isMissingRequired =
+                                    requiredAttributeCount > 0 &&
+                                    templateAttributeCount < requiredAttributeCount;
+
+                                  return (
                                     <div
-                                      className="h-16 rounded mb-2 flex items-center justify-center text-white text-xs font-medium"
-                                      style={{
-                                        background: template.oca_branding?.primary_background_color
-                                          ? `linear-gradient(135deg, ${template.oca_branding.primary_background_color}, ${template.oca_branding.secondary_background_color || template.oca_branding.primary_background_color})`
-                                          : 'linear-gradient(135deg, #1e3a5f, #0f1f33)',
-                                      }}
+                                      key={template.id}
+                                      onClick={() => handleTemplateSelect(template.id)}
+                                      className={`p-3 border rounded-lg cursor-pointer transition-all ${
+                                        selectedTemplateId === template.id
+                                          ? 'border-primary-500 bg-blue-50 ring-2 ring-blue-200'
+                                          : 'border-border-secondary hover:border-border-secondary hover:bg-surface-100 dark:bg-surface-800'
+                                      } ${isMissingRequired ? 'opacity-60 grayscale' : ''}`}
                                     >
-                                      {template.oca_branding?.logo ? (
-                                        <img
-                                          src={template.oca_branding.logo}
-                                          alt=""
-                                          className="h-8 w-auto object-contain"
-                                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                        />
-                                      ) : (
-                                        <span className="opacity-75">{template.name?.substring(0, 2).toUpperCase()}</span>
+                                      {/* Template Preview */}
+                                      <div
+                                        className="h-16 rounded mb-2 flex items-center justify-center text-white text-xs font-medium"
+                                        style={{
+                                          background: template.oca_branding?.primary_background_color
+                                            ? `linear-gradient(135deg, ${template.oca_branding.primary_background_color}, ${template.oca_branding.secondary_background_color || template.oca_branding.primary_background_color})`
+                                            : 'linear-gradient(135deg, #1e3a5f, #0f1f33)',
+                                        }}
+                                      >
+                                        {template.oca_branding?.logo ? (
+                                          <img
+                                            src={template.oca_branding.logo}
+                                            alt=""
+                                            className="h-8 w-auto object-contain"
+                                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                          />
+                                        ) : (
+                                          <span className="opacity-75">{template.name?.substring(0, 2).toUpperCase()}</span>
+                                        )}
+                                      </div>
+                                      <p className="text-sm font-medium text-text-primary truncate">{template.name}</p>
+                                      {template.category && (
+                                        <p className="text-xs text-text-tertiary capitalize">{template.category}</p>
                                       )}
                                     </div>
-                                    <p className="text-sm font-medium text-text-primary truncate">{template.name}</p>
-                                    {template.category && (
-                                      <p className="text-xs text-text-tertiary capitalize">{template.category}</p>
-                                    )}
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                               {selectedTemplateId && (
                                 <p className="mt-2 text-xs text-success-600 dark:text-success-400 flex items-center gap-1">
@@ -1148,6 +1265,16 @@ export default function CredentialDefinitionsPage() {
                                   </svg>
                                   OCA fields auto-filled from template
                                 </p>
+                              )}
+                              {selectedTemplateMissingRequired && (
+                                <div className="mt-2 p-2 rounded-md bg-warning-50 border border-warning-200 text-xs text-warning-700 flex items-start gap-2">
+                                  <svg className="w-4 h-4 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M10.29 3.86l-7.1 12.28a1 1 0 0 0 .86 1.5h16a1 1 0 0 0 .86-1.5L13.7 3.86a1 1 0 0 0-1.72 0z" />
+                                  </svg>
+                                  <span>
+                                    Selected template has {selectedTemplateAttributeCount} attribute slot(s), but the schema has {requiredAttributeCount}. You can still use it, but some attributes may not appear on the card.
+                                  </span>
+                                </div>
                               )}
                             </div>
                           ) : (
@@ -1300,6 +1427,30 @@ export default function CredentialDefinitionsPage() {
                                   placeholder="e.g., studentId"
                                 />
                               </div>
+                              {availableAttributeRoles.filter((role) => !['primary_attribute', 'secondary_attribute'].includes(role)).map((roleKey) => {
+                                const labelMap: Record<string, string> = {
+                                  tertiary_attribute: 'Tertiary Attribute',
+                                  quaternary_attribute: 'Quaternary Attribute',
+                                  quinary_attribute: 'Quinary Attribute',
+                                };
+                                const placeholderMap: Record<string, string> = {
+                                  tertiary_attribute: 'e.g., id',
+                                  quaternary_attribute: 'e.g., cohort',
+                                  quinary_attribute: 'e.g., level',
+                                };
+                                return (
+                                  <div key={roleKey}>
+                                    <label className="block text-xs text-text-secondary mb-1">{labelMap[roleKey] || 'Attribute'}</label>
+                                    <input
+                                      type="text"
+                                      value={(overlayBranding as any)[roleKey] || ''}
+                                      onChange={(e) => setOverlayBranding({ ...overlayBranding, [roleKey]: e.target.value })}
+                                      className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                      placeholder={placeholderMap[roleKey] || ''}
+                                    />
+                                  </div>
+                                );
+                              })}
                               <div>
                                 <label className="block text-xs text-text-secondary mb-1">Logo URL</label>
                                 <input
@@ -1564,6 +1715,27 @@ export default function CredentialDefinitionsPage() {
                                               {'}}'}
                                             </div>
                                           )}
+                                          {overlayData.branding?.tertiary_attribute && (
+                                            <div className="text-sm opacity-70">
+                                              {'{{'}
+                                              {overlayData.branding.tertiary_attribute}
+                                              {'}}'}
+                                            </div>
+                                          )}
+                                          {overlayData.branding?.quaternary_attribute && (
+                                            <div className="text-sm opacity-70">
+                                              {'{{'}
+                                              {overlayData.branding.quaternary_attribute}
+                                              {'}}'}
+                                            </div>
+                                          )}
+                                          {overlayData.branding?.quinary_attribute && (
+                                            <div className="text-sm opacity-70">
+                                              {'{{'}
+                                              {overlayData.branding.quinary_attribute}
+                                              {'}}'}
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
                                     </div>
@@ -1651,6 +1823,24 @@ export default function CredentialDefinitionsPage() {
                                       <div>
                                         <p className="text-xs text-text-tertiary">Secondary Attribute</p>
                                         <p className="text-sm text-text-primary">{overlayData.branding.secondary_attribute}</p>
+                                      </div>
+                                    )}
+                                    {overlayData.branding.tertiary_attribute && (
+                                      <div>
+                                        <p className="text-xs text-text-tertiary">Tertiary Attribute</p>
+                                        <p className="text-sm text-text-primary">{overlayData.branding.tertiary_attribute}</p>
+                                      </div>
+                                    )}
+                                    {overlayData.branding.quaternary_attribute && (
+                                      <div>
+                                        <p className="text-xs text-text-tertiary">Quaternary Attribute</p>
+                                        <p className="text-sm text-text-primary">{overlayData.branding.quaternary_attribute}</p>
+                                      </div>
+                                    )}
+                                    {overlayData.branding.quinary_attribute && (
+                                      <div>
+                                        <p className="text-xs text-text-tertiary">Quinary Attribute</p>
+                                        <p className="text-sm text-text-primary">{overlayData.branding.quinary_attribute}</p>
                                       </div>
                                     )}
                                     {overlayData.branding.logo && (

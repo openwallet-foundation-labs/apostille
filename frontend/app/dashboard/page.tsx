@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { apiPost, DashboardStats } from '../utils/api';
+import { apiGet, apiPost, DashboardStats } from '../utils/api';
 import CreateInvitation from '../components/CreateInvitation';
 import Link from 'next/link';
 import { PlusIcon, ConnectionsIcon, CredentialsIcon, ProofsIcon, DIDsIcon, SecurityIcon, ErrorIcon } from '../components/ui/Icons';
@@ -104,7 +104,7 @@ export default function DashboardPage() {
     },
     {
       name: 'DIDs',
-      value: 0,
+      value: stats?.dids?.total || 0,
       subtitle: 'View DID records',
       href: '/dashboard/dids',
       icon: <DIDsIcon className="w-8 h-8" />,
@@ -139,7 +139,7 @@ export default function DashboardPage() {
             )}
           </div>
           
-          <div className="flex flex-col sm:flex-row gap-3">
+          {/* <div className="flex flex-col sm:flex-row gap-3">
             <button
               onClick={() => setShowInvitationPanel(!showInvitationPanel)}
               className="btn btn-primary"
@@ -150,7 +150,7 @@ export default function DashboardPage() {
             <Link href="/dashboard/connections" className="btn btn-secondary">
               View All Connections
             </Link>
-          </div>
+          </div> */}
         </div>
       </div>
       

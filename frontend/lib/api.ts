@@ -62,7 +62,11 @@ async function fetchWithErrorHandling(url: string, options: RequestInit = {}) {
     const data = await response.json();
     
     if (!response.ok) {
-      throw new Error(data.message || 'An error occurred');
+      const err: any = new Error(data.message || 'An error occurred');
+      err.code = data.code;
+      err.data = data;
+      err.status = response.status;
+      throw err;
     }
     
     return data;
@@ -332,6 +336,9 @@ export interface CredentialDefinitionOverlay {
     secondary_background_color?: string;
     primary_attribute?: string;
     secondary_attribute?: string;
+    tertiary_attribute?: string;
+    quaternary_attribute?: string;
+    quinary_attribute?: string;
     logo?: string;
     background_image?: string;
     svg_template_url?: string;
