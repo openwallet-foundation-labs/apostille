@@ -211,11 +211,20 @@ export default function PoePage() {
             {showRequestForm && (
                 <div className="modal-backdrop">
                     <div className="modal-container max-w-md">
-                        <h2 className="text-xl font-bold mb-4 text-text-primary">
-                            Request Proof of Execution
-                        </h2>
+                        <div className="modal-header">
+                            <h2 className="modal-title">Request Proof of Execution</h2>
+                            <button
+                                onClick={() => setShowRequestForm(false)}
+                                className="modal-close-button"
+                                aria-label="Close modal"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
 
-                        <div className="space-y-4">
+                        <div className="modal-body space-y-4">
                             <div>
                                 <label className="form-label">
                                     Connection
@@ -288,22 +297,21 @@ export default function PoePage() {
                                     Controls how much information is disclosed with the proof
                                 </p>
                             </div>
-                        </div>
-
-                        <div className="flex justify-end gap-2 mt-6">
-                            <button
-                                onClick={() => setShowRequestForm(false)}
-                                className="btn btn-secondary"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleRequestProof}
-                                disabled={!requestForm.connectionId || !requestForm.programId || submitting}
-                                className="btn btn-primary"
-                            >
-                                {submitting ? 'Sending...' : 'Send Request'}
-                            </button>
+                            <div className="flex justify-end gap-2 pt-4 border-t border-border-secondary">
+                                <button
+                                    onClick={() => setShowRequestForm(false)}
+                                    className="btn btn-secondary"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleRequestProof}
+                                    disabled={!requestForm.connectionId || !requestForm.programId || submitting}
+                                    className="btn btn-primary"
+                                >
+                                    {submitting ? 'Sending...' : 'Send Request'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -411,20 +419,21 @@ export default function PoePage() {
             {/* Session Detail Modal */}
             {selectedSession && (
                 <div className="modal-backdrop">
-                    <div className="modal-container max-w-2xl max-h-[80vh] overflow-y-auto">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold text-text-primary">Session Details</h2>
+                    <div className="modal-container max-w-2xl">
+                        <div className="modal-header">
+                            <h2 className="modal-title">Session Details</h2>
                             <button
                                 onClick={() => setSelectedSession(null)}
-                                className="text-text-tertiary hover:text-text-primary transition-colors"
+                                className="modal-close-button"
+                                aria-label="Close modal"
                             >
-                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                             </button>
                         </div>
 
-                        <div className="space-y-4">
+                        <div className="modal-body space-y-4">
                             <div>
                                 <label className="text-sm text-text-tertiary">Session ID</label>
                                 <p className="font-mono text-sm break-all text-text-primary">

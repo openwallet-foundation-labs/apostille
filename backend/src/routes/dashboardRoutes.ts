@@ -15,6 +15,9 @@ export interface DashboardStats {
     issued: number;
     received: number;
   };
+  dids: {
+    total: number;
+  };
   invitations: {
     pending: number;
   };
@@ -58,6 +61,10 @@ router.route('/stats')
         const totalCredentials = credentials.length;
         const issuedCredentials = credentials.filter(cred => cred.state === 'done' && cred.role === 'issuer').length;
         const receivedCredentials = credentials.filter(cred => cred.state === 'done' && cred.role === 'holder').length;
+
+        // Get DIDs
+        const dids = await agent.dids.getCreatedDids({});
+        const totalDids = dids.length;
         
         res.status(200).json({
           success: true,
@@ -69,6 +76,9 @@ router.route('/stats')
             total: totalCredentials,
             issued: issuedCredentials,
             received: receivedCredentials
+          },
+          dids: {
+            total: totalDids
           },
           invitations: {
             pending: pendingInvitations

@@ -141,7 +141,8 @@ router.get('/templates/:templateId', auth, async (req: Request, res: Response) =
     if (!rec) return res.status(404).json({ success: false, message: 'template not found' })
     return res.status(200).json({
       success: true,
-      template: {
+      template: rec.template,
+      meta: {
         id: rec.id,
         template_id: rec.template.template_id,
         version: rec.template.version,
