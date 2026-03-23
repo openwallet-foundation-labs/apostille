@@ -130,45 +130,4 @@ router.post('/end', async (req: Request, res: Response) => {
   }
 })
 
-// TURN/STUN config provider - returns ICE servers for WebRTC
-router.get('/turn', async (req: Request, res: Response) => {
-  try {
-    const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = []
-
-    // Always add public STUN servers (no auth needed)
-    iceServers.push({ urls: 'stun:stun.l.google.com:19302' })
-    iceServers.push({ urls: 'stun:stun1.l.google.com:19302' })
-
-    // Add custom TURN servers if configured (with auth)
-    if (process.env.WEBRTC_TURN_USERNAME && process.env.WEBRTC_TURN_CREDENTIAL) {
-      const username = process.env.WEBRTC_TURN_USERNAME
-      const credential = process.env.WEBRTC_TURN_CREDENTIAL
-      const urls = process.env.WEBRTC_STUN_URLS || ''
-
-      // Parse STUN/TURN URLs and add credentials only to TURN servers
-      for (const url of urls.split(',').map((u) => u.trim()).filter(Boolean)) {
-        if (url.startsWith('turn:') || url.startsWith('turns:')) {
-          iceServers.push({ urls: url, username, credential })
-        } else if (url.startsWith('stun:')) {
-          iceServers.push({ urls: url })
-        }
-      }
-
-      // If no TURN URLs were in WEBRTC_STUN_URLS, fall through to public TURN servers
-      const hasTurn = iceServers.some((s) =>
-        (typeof s.urls === 'string' ? s.urls : s.urls[0])?.startsWith('turn')
-      )
-    } else {
-      // Fallback to free public TURN servers
-      iceServers.push({ urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' })
-      iceServers.push({ urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' })
-      iceServers.push({ urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' })
-    }
-
-    res.json({ iceServers })
-  } catch (e: any) {
-    res.status(500).json({ success: false, message: e?.message || 'Internal error' })
-  }
-})
-
 export default router

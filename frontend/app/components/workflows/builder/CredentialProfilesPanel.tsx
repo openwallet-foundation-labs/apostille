@@ -169,7 +169,7 @@ export function CredentialProfilesPanel() {
     // Auto-populate attribute_plan with schema attributes
     const attributePlan: Record<string, AttributePlanEntry> = {}
     if (schemaAttrNames.length) {
-      schemaAttrNames.forEach(attr => {
+      schemaAttrNames.forEach((attr: string) => {
         attributePlan[attr] = {
           source: 'context',
           path: attr,
