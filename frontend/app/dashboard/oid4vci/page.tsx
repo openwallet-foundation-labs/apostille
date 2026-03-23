@@ -11,6 +11,7 @@ import {
 } from '../../../lib/api';
 import { QRCodeSVG } from 'qrcode.react';
 import MdlIssuanceForm from '../../components/mdoc/MdlIssuanceForm';
+import Link from 'next/link';
 
 interface CredentialDefinition {
   id: string;
@@ -323,12 +324,12 @@ export default function OID4VCIPage() {
           <p className="text-text-secondary mb-4">
             Create an SD-JWT VC (OID4VC) or mDL/mdoc credential definition first to issue credentials via QR code.
           </p>
-          <a
-            href="/credential-definitions"
+          <Link
+            href="/dashboard/credential-definitions"
             className="btn btn-primary inline-flex items-center"
           >
             Go to Credential Definitions
-          </a>
+          </Link>
         </div>
       ) : (
         /* Create Offer Form */

@@ -9,6 +9,27 @@ export type GetAgent = (opts: { tenantId: string }) => Promise<{
   context: any
 }>
 
+const getByPath = (obj: Record<string, unknown>, path?: string) => {
+  if (!path) return undefined
+  return path.split('.').reduce((acc: unknown, part) => {
+    if (acc === null || acc === undefined) return undefined
+    if (typeof acc !== 'object') return undefined
+    return (acc as Record<string, unknown>)[part]
+  }, obj as unknown)
+}
+
+const findMissingRequired = (context: Record<string, unknown>, plan: Record<string, any>) => {
+  const missing: Array<{ key: string; path?: string }> = []
+  for (const [key, spec] of Object.entries(plan || {})) {
+    if (!spec?.required) continue
+    const val = spec.source === 'context' ? getByPath(context, spec.path) : spec.source === 'static' ? spec.value : undefined
+    if (val === undefined || val === null || val === '') {
+      missing.push({ key, path: spec.path })
+    }
+  }
+  return missing
+}
+
 function badRequest(res: Response, message: string, code?: string) {
   return res.status(400).json({ success: false, message, ...(code ? { code } : {}) })
 }
@@ -326,8 +347,74 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
     } catch (error) {
       const message = (error as Error).message || 'Failed to advance workflow instance'
       const code = (error as any)?.code
+      let missingDetails:
+        | {
+            instanceId?: string
+            event?: string
+            state?: string
+            actionKey?: string
+            profileRef?: string
+            credentialDefinitionId?: string
+            missing?: Array<{ key: string; path?: string }>
+            required?: Array<{ key: string; source?: string; path?: string }>
+            contextKeys?: string[]
+          }
+        | undefined
+      if (message === 'missing_attributes' || code === 'missing_attributes' || code === 'action_error') {
+        try {
+          const tenantId = (req as any).user?.tenantId
+          if (tenantId) {
+            const agent = await getAgent({ tenantId })
+            const { WorkflowInstanceRepository, WorkflowTemplateRepository } = require('@ajna-inc/workflow/build')
+            const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
+            const templateRepo = agent.dependencyManager.resolve(WorkflowTemplateRepository)
+            const inst = await instanceRepo.getByInstanceId(agent.context, req.params.instanceId)
+            const ctx = ((inst as any)?.context as Record<string, unknown>) || {}
+            const tplRec = inst
+              ? await templateRepo.findByTemplateIdAndVersion(agent.context, inst.templateId, inst.templateVersion)
+              : null
+            const tpl = tplRec?.template as any
+            const transition = tpl?.transitions?.find((t: any) => t.from === inst?.state && t.on === (req.body || {}).event)
+            const actionKey = transition?.action
+            const actionDef = actionKey ? tpl?.actions?.find((a: any) => a.key === actionKey) : null
+            let missing: Array<{ key: string; path?: string }> = []
+            let required: Array<{ key: string; source?: string; path?: string }> = []
+            let credDefId: string | undefined
+            if (actionDef?.profile_ref?.startsWith('cp.')) {
+              const profileId = actionDef.profile_ref.slice(3)
+              const profile = tpl?.catalog?.credential_profiles?.[profileId]
+              if (profile?.attribute_plan) {
+                missing = findMissingRequired(ctx, profile.attribute_plan)
+                required = Object.entries(profile.attribute_plan).flatMap(([key, spec]: any) =>
+                  spec?.required ? [{ key, source: spec?.source, path: spec?.path }] : []
+                )
+              }
+              credDefId = profile?.credential_definition_id || profile?.credentialDefinitionId
+            }
+            const eventName = typeof (req.body || {}).event === 'string' ? (req.body || {}).event : undefined
+            missingDetails = {
+              instanceId: req.params.instanceId,
+              event: eventName,
+              state: inst?.state,
+              actionKey,
+              profileRef: actionDef?.profile_ref,
+              credentialDefinitionId: credDefId,
+              missing,
+              required,
+              contextKeys: Object.keys(ctx),
+            }
+          }
+        } catch (_e) {
+          // ignore debug errors
+        }
+      }
       const status = code === 'invalid_template' || (typeof code === 'string' && code.startsWith('invalid_')) || code === 'forbidden' || code === 'guard_failed' ? 400 : code === 'state_conflict' || code === 'idempotency_conflict' ? 409 : 500
-      return res.status(status).json({ success: false, message, code })
+      return res.status(status).json({
+        success: false,
+        message,
+        code,
+        ...(missingDetails ? { missing: missingDetails } : {}),
+      })
     }
   })
 

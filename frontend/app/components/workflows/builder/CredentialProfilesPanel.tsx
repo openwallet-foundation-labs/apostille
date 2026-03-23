@@ -27,12 +27,47 @@ export function CredentialProfilesPanel() {
   const [showNewForm, setShowNewForm] = useState(false)
   const [schemaAttributes, setSchemaAttributes] = useState<string[]>([])
   const [loadingSchema, setLoadingSchema] = useState(false)
+  const [credDefError, setCredDefError] = useState<string | null>(null)
 
   const credentialProfiles = template.catalog.credential_profiles || {}
   const profileIds = Object.keys(credentialProfiles)
 
   // Get the selected profile
   const selectedProfile = selectedProfileId ? credentialProfiles[selectedProfileId] : null
+
+  const inputSchemaRequiredKeys = (() => {
+    const keys = new Set<string>()
+    const profiles = (template as any)?.display_hints?.profiles || {}
+    const receiver = profiles.receiver || {}
+    const states = receiver?.states || {}
+
+    const collectRequired = (schema: any) => {
+      if (!schema || schema.type !== 'object' || !schema.properties) return
+      const required = Array.isArray(schema.required) ? schema.required : []
+      for (const [key, prop] of Object.entries(schema.properties)) {
+        const isRequired = required.includes(key)
+        if (prop && (prop as any).type === 'object' && (prop as any).properties) {
+          collectRequired(prop)
+        } else if (isRequired) {
+          keys.add(key)
+        }
+      }
+    }
+
+    for (const hints of Object.values(states)) {
+      if (!Array.isArray(hints)) continue
+      for (const hint of hints as any[]) {
+        if (hint?.input_schema) collectRequired(hint.input_schema)
+      }
+    }
+    return Array.from(keys)
+  })()
+
+  const staticRequiredKeys = Object.entries(selectedProfile?.attribute_plan || {})
+    .filter(([, spec]) => spec?.source === 'static' && spec?.required)
+    .map(([key]) => key)
+
+  const lockedRequiredKeys = Array.from(new Set([...inputSchemaRequiredKeys, ...staticRequiredKeys]))
 
   // Find the selected credential definition details
   const selectedCredDef = selectedProfile?.cred_def_id
@@ -43,6 +78,12 @@ export function CredentialProfilesPanel() {
   const relatedSchema = selectedCredDef?.schemaId
     ? schemas.find(s => s.schemaId === selectedCredDef.schemaId)
     : null
+
+  const getSchemaAttrsFromCache = (schemaId?: string) => {
+    if (!schemaId) return []
+    const schema = schemas.find(s => s.schemaId === schemaId)
+    return schema?.attrNames || []
+  }
 
   // Fetch schema attributes when cred def changes
   useEffect(() => {
@@ -75,6 +116,16 @@ export function CredentialProfilesPanel() {
     fetchSchemaAttributes()
   }, [selectedCredDef?.schemaId, relatedSchema])
 
+  // Clear selection error when switching profiles
+  useEffect(() => {
+    setCredDefError(null)
+  }, [selectedProfileId])
+
+  // Reset selected profile when switching templates
+  useEffect(() => {
+    setSelectedProfileId(null)
+  }, [template?.template_id, (template as any)?.version])
+
   const handleAddProfile = () => {
     if (!newProfileId.trim()) return
 
@@ -90,16 +141,35 @@ export function CredentialProfilesPanel() {
     setShowNewForm(false)
   }
 
-  const handleCredDefChange = (credDefId: string) => {
-    if (!selectedProfileId) return
-
+  const getSchemaAttrsForCredDef = async (credDefId: string) => {
     const credDef = credentialDefinitions.find(cd => cd.credentialDefinitionId === credDefId)
     const schema = credDef?.schemaId ? schemas.find(s => s.schemaId === credDef.schemaId) : null
+    if (schema?.attrNames?.length) return schema.attrNames
+    if (!credDef?.schemaId) return []
+    try {
+      const response = await schemaApi.getBySchemaId(credDef.schemaId)
+      return response?.schema?.attrNames || []
+    } catch {
+      return []
+    }
+  }
+
+  const handleCredDefChange = async (credDefId: string) => {
+    if (!selectedProfileId) return
+
+    const schemaAttrNames = await getSchemaAttrsForCredDef(credDefId)
+    if (lockedRequiredKeys.length > 0) {
+      const missing = lockedRequiredKeys.filter((attr) => !schemaAttrNames.includes(attr))
+      if (missing.length > 0) {
+        setCredDefError(`Selected credential definition is missing required attribute(s): ${missing.join(', ')}`)
+        return
+      }
+    }
 
     // Auto-populate attribute_plan with schema attributes
     const attributePlan: Record<string, AttributePlanEntry> = {}
-    if (schema?.attrNames) {
-      schema.attrNames.forEach(attr => {
+    if (schemaAttrNames.length) {
+      schemaAttrNames.forEach(attr => {
         attributePlan[attr] = {
           source: 'context',
           path: attr,
@@ -108,6 +178,7 @@ export function CredentialProfilesPanel() {
       })
     }
 
+    setCredDefError(null)
     updateCredentialProfile(selectedProfileId, {
       cred_def_id: credDefId,
       attribute_plan: attributePlan,
@@ -234,16 +305,49 @@ export function CredentialProfilesPanel() {
                         <label className="block text-xs text-text-tertiary mb-1">Credential Definition</label>
                         <select
                           value={profile.cred_def_id || ''}
-                          onChange={(e) => handleCredDefChange(e.target.value)}
+                          onChange={(e) => void handleCredDefChange(e.target.value)}
                           className="w-full bg-surface-100 dark:bg-surface-800 border border-border-secondary rounded px-2 py-1.5 text-sm focus:outline-none focus:border-primary-500"
                         >
                           <option value="">Select credential definition...</option>
-                          {credentialDefinitions.map((cd) => (
-                            <option key={cd.id} value={cd.credentialDefinitionId}>
-                              {cd.tag} ({cd.credentialDefinitionId.slice(0, 30)}...)
-                            </option>
-                          ))}
+                          {credentialDefinitions
+                            .map((cd) => {
+                              const schemaAttrs = getSchemaAttrsFromCache(cd.schemaId)
+                              const missing = lockedRequiredKeys.length
+                                ? lockedRequiredKeys.filter((attr) => !schemaAttrs.includes(attr))
+                                : []
+                              const hasSchema = schemaAttrs.length > 0
+                              const incompatible = lockedRequiredKeys.length > 0 && (missing.length > 0 || !hasSchema)
+                              const labelSuffix = !hasSchema
+                                ? ' (schema not loaded)'
+                                : missing.length > 0
+                                  ? ` (missing: ${missing.join(', ')})`
+                                  : ''
+
+                              return {
+                                cd,
+                                incompatible,
+                                labelSuffix,
+                              }
+                            })
+                            .sort((a, b) => {
+                              if (a.incompatible !== b.incompatible) return a.incompatible ? 1 : -1
+                              return a.cd.tag.localeCompare(b.cd.tag)
+                            })
+                            .map(({ cd, incompatible, labelSuffix }) => (
+                              <option
+                                key={cd.id}
+                                value={cd.credentialDefinitionId}
+                                disabled={incompatible}
+                              >
+                                {cd.tag} ({cd.credentialDefinitionId.slice(0, 30)}...){labelSuffix}
+                              </option>
+                            ))}
                         </select>
+                        {credDefError && (
+                          <p className="mt-2 text-xs text-error-500">
+                            {credDefError}
+                          </p>
+                        )}
                         {profile.cred_def_id && (
                           <p className="mt-1 text-xs text-text-tertiary break-all">
                             {profile.cred_def_id}
@@ -303,16 +407,13 @@ export function CredentialProfilesPanel() {
                             {Object.entries(profile.attribute_plan || {}).map(([attrName, entry]) => (
                               <div key={attrName} className="p-2 bg-surface-100 dark:bg-surface-800 rounded">
                                 <div className="flex items-center justify-between mb-1">
-                                  <span className="text-sm font-medium text-text-primary">{attrName}</span>
-                                  <label className="flex items-center gap-1 text-xs text-text-tertiary">
-                                    <input
-                                      type="checkbox"
-                                      checked={entry.required || false}
-                                      onChange={(e) => handleAttributeUpdate(attrName, { required: e.target.checked })}
-                                      className="w-3 h-3"
-                                    />
-                                    Required
-                                  </label>
+                                  <span className="text-sm font-medium text-text-primary">
+                                    {attrName}
+                                    {lockedRequiredKeys.includes(attrName) && (
+                                      <span className="ml-1 text-error-500">*</span>
+                                    )}
+                                  </span>
+                                  <span className="text-xs text-text-tertiary">Required</span>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
                                   <div>

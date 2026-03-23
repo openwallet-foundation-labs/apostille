@@ -19,6 +19,9 @@ import {
  * - ImageNode with role=background -> branding.background_image
  * - AttributeNode with role=primary -> branding.primary_attribute
  * - AttributeNode with role=secondary -> branding.secondary_attribute
+ * - AttributeNode with role=tertiary -> branding.tertiary_attribute
+ * - AttributeNode with role=quaternary -> branding.quaternary_attribute
+ * - AttributeNode with role=quinary -> branding.quinary_attribute
  * - TextNode with isMetaField=true -> meta fields (issuer, name, etc.)
  */
 export function exportCraftStateToOCA(craftState: CraftState): OCAOverlay {
@@ -74,6 +77,12 @@ export function exportCraftStateToOCA(craftState: CraftState): OCAOverlay {
           overlay.branding!.primary_attribute = props.attributeName;
         } else if (props.role === 'secondary' && props.attributeName) {
           overlay.branding!.secondary_attribute = props.attributeName;
+        } else if (props.role === 'tertiary' && props.attributeName) {
+          overlay.branding!.tertiary_attribute = props.attributeName;
+        } else if (props.role === 'quaternary' && props.attributeName) {
+          overlay.branding!.quaternary_attribute = props.attributeName;
+        } else if (props.role === 'quinary' && props.attributeName) {
+          overlay.branding!.quinary_attribute = props.attributeName;
         }
         // Check for date role attributes
         const extendedProps = props as AttributeNodeProps & { dateRole?: 'issued' | 'expiry' };

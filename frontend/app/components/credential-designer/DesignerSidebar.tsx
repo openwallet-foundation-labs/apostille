@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { useEditor } from '@craftjs/core';
 import { useDesignerStore } from '@/lib/credential-designer/store';
 import { credentialDesignerApi } from '@/lib/credential-designer/api';
+import { schemaApi } from '@/lib/api';
 import { TextNode, ImageNode, AttributeNode } from './nodes';
 import { PresetTemplate } from '@/lib/credential-designer/types';
 
@@ -17,9 +19,21 @@ export default function DesignerSidebar() {
   const loadAssets = useDesignerStore((state) => state.loadAssets);
   const createFromPreset = useDesignerStore((state) => state.createFromPreset);
   const availableAttributes = useDesignerStore((state) => state.availableAttributes);
+  const schemaId = useDesignerStore((state) => state.schemaId);
+  const setAvailableAttributes = useDesignerStore((state) => state.setAvailableAttributes);
+  const setSchemaId = useDesignerStore((state) => state.setSchemaId);
 
   const [presets, setPresets] = useState<PresetTemplate[]>([]);
   const [loadingPresets, setLoadingPresets] = useState(false);
+  const [schemas, setSchemas] = useState<Array<{
+    id?: string;
+    schemaId?: string;
+    name: string;
+    version: string;
+    attrNames: string[];
+  }>>([]);
+  const [loadingSchemas, setLoadingSchemas] = useState(false);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
   // Refs for drag sources - these persist across renders
   const dragSourceRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const componentsRef = useRef<HTMLDivElement>(null);
@@ -29,6 +43,81 @@ export default function DesignerSidebar() {
   useEffect(() => {
     loadAssets();
   }, [loadAssets]);
+
+  const normalizeSchema = useCallback((schema: any) => {
+    const schemaObj = schema?.schema || schema || {};
+    const schemaIdValue = schema?.schemaId || schema?.id || schemaObj?.schemaId || schemaObj?.id || '';
+    const idValue = schema?.id || schema?.schemaId || schemaObj?.id || schemaObj?.schemaId || '';
+    const nameValue = schemaObj?.name || schema?._tags?.schemaName || schema?.name || 'Unknown';
+    const versionValue = schemaObj?.version || schema?._tags?.schemaVersion || schema?.version || '1.0.0';
+    const attrNamesValue = schemaObj?.attrNames || schemaObj?.attributes || schema?.attributes || [];
+    return {
+      id: idValue || schemaIdValue,
+      schemaId: schemaIdValue || idValue,
+      name: nameValue,
+      version: versionValue,
+      attrNames: Array.isArray(attrNamesValue) ? attrNamesValue : [],
+    };
+  }, []);
+
+  const loadSchemas = useCallback(async () => {
+    setLoadingSchemas(true);
+    setSchemaError(null);
+    try {
+      const response = await schemaApi.getAll();
+      const list = Array.isArray(response) ? response : (response.schemas || []);
+      setSchemas(list.map(normalizeSchema));
+    } catch (err: any) {
+      setSchemaError(err?.message || 'Failed to load schemas');
+      setSchemas([]);
+    } finally {
+      setLoadingSchemas(false);
+    }
+  }, [normalizeSchema]);
+
+  useEffect(() => {
+    loadSchemas();
+  }, [loadSchemas]);
+
+  useEffect(() => {
+    if (!schemaId) {
+      if (schemas.length === 1) {
+        const onlySchema = schemas[0];
+        const nextSchemaId = onlySchema.schemaId || onlySchema.id || '';
+        if (nextSchemaId) {
+          setSchemaId(nextSchemaId);
+          setAvailableAttributes(onlySchema.attrNames || []);
+        }
+      }
+      return;
+    }
+
+    if (availableAttributes.length > 0) return;
+
+    const selected = schemas.find((s) => (s.schemaId || s.id) === schemaId);
+    if (selected?.attrNames?.length) {
+      setAvailableAttributes(selected.attrNames);
+      return;
+    }
+
+    const fetchAttributes = async () => {
+      try {
+        if (selected?.schemaId) {
+          const response = await schemaApi.getBySchemaId(selected.schemaId);
+          const attrs = response?.schema?.schema?.attrNames || response?.schema?.attrNames || response?.schema?.attributes || [];
+          setAvailableAttributes(Array.isArray(attrs) ? attrs : []);
+        } else if (selected?.id) {
+          const response = await schemaApi.getById(selected.id);
+          const attrs = response?.schema?.attrNames || response?.schema?.attributes || response?.schema?.schema?.attrNames || [];
+          setAvailableAttributes(Array.isArray(attrs) ? attrs : []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch schema attributes:', err);
+      }
+    };
+
+    fetchAttributes();
+  }, [availableAttributes.length, schemaId, schemas, setAvailableAttributes, setSchemaId]);
 
   // Register a drag source and store ref
   const registerDragSource = useCallback((key: string, element: React.ReactElement) => {
@@ -110,11 +199,70 @@ export default function DesignerSidebar() {
           Credential Attributes
         </h3>
 
+        {/* Schema selector */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-text-secondary">
+              Schema
+            </label>
+            <button
+              type="button"
+              onClick={loadSchemas}
+              className="text-xs text-text-tertiary hover:text-text-primary transition-colors"
+              title="Refresh schemas"
+              disabled={loadingSchemas}
+            >
+              Refresh
+            </button>
+          </div>
+          {loadingSchemas ? (
+            <div className="text-xs text-text-tertiary">Loading schemas...</div>
+          ) : schemaError ? (
+            <div className="text-xs text-error-500">{schemaError}</div>
+          ) : schemas.length === 0 ? (
+            <div className="text-xs text-text-tertiary">
+              No schemas found.{' '}
+              <Link href="/dashboard/schemas" className="text-primary-500 hover:text-primary-600">
+                Create a schema
+              </Link>
+            </div>
+          ) : (
+            <select
+              value={schemaId || ''}
+              onChange={(e) => {
+                const nextSchemaId = e.target.value || null;
+                setSchemaId(nextSchemaId);
+                if (!nextSchemaId) {
+                  setAvailableAttributes([]);
+                  return;
+                }
+                const selected = schemas.find((s) => (s.schemaId || s.id) === nextSchemaId);
+                if (selected?.attrNames?.length) {
+                  setAvailableAttributes(selected.attrNames);
+                } else {
+                  setAvailableAttributes([]);
+                }
+              }}
+              className="w-full px-3 py-2 bg-surface-200 border border-border-primary rounded text-text-primary text-xs"
+            >
+              <option value="">Select a schema</option>
+              {schemas.map((schema) => {
+                const value = schema.schemaId || schema.id || '';
+                return (
+                  <option key={value} value={value}>
+                    {schema.name} (v{schema.version})
+                  </option>
+                );
+              })}
+            </select>
+          )}
+        </div>
+
         {/* Attributes List - Each attribute is draggable */}
         {availableAttributes.length === 0 ? (
           <div className="text-center py-4 text-text-tertiary text-xs">
             <p>No schema attributes available.</p>
-            <p className="mt-1">Add attributes in Create New Schema to place them on the card.</p>
+            <p className="mt-1">Select a schema above to load attributes.</p>
           </div>
         ) : (
           <div ref={attributesContainerRef} className="space-y-1.5 max-h-64 overflow-y-auto">

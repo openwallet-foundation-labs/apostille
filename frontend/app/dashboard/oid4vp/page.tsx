@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { credentialDefinitionApi, oid4vpApi } from '../../../lib/api';
 import { QRCodeSVG } from 'qrcode.react';
+import Link from 'next/link';
 
 interface CredentialDefinition {
   id: string;
@@ -350,12 +351,12 @@ export default function OID4VPPage() {
           <p className="text-text-secondary mb-4">
             Create OID4VC credential definitions to verify credentials via QR code.
           </p>
-          <a
-            href="/credential-definitions"
+          <Link
+            href="/dashboard/credential-definitions"
             className="btn btn-primary inline-flex items-center"
           >
             Go to Credential Definitions
-          </a>
+          </Link>
         </div>
       ) : (
         /* Create Request Form */

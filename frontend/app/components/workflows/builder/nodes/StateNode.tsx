@@ -6,6 +6,7 @@
 'use client'
 
 import { Group, Rect, Text, Path, Circle } from 'react-konva'
+import { useState } from 'react'
 import { ICON_PATHS, getScaledIconProps } from '../icons'
 import { BadgesRow, BadgeType } from './FeatureBadge'
 import { StateFeatures } from '../utils/featureDetection'
@@ -56,8 +57,10 @@ interface StateNodeProps {
   stateType: StateType
   features: StateFeatures
   isSelected: boolean
-  isConnectMode: boolean
+  showAnchors: boolean
+  canDrag: boolean
   isConnecting: boolean  // Currently drawing an edge from another node
+  canCompleteSelf: boolean
   onSelect: () => void
   onDragEnd: (x: number, y: number) => void
   onDelete: () => void
@@ -73,8 +76,10 @@ export function StateNode({
   stateType,
   features,
   isSelected,
-  isConnectMode,
+  showAnchors,
+  canDrag,
   isConnecting,
+  canCompleteSelf,
   onSelect,
   onDragEnd,
   onDelete,
@@ -86,6 +91,8 @@ export function StateNode({
   const colors = stateNodeColors[stateType]
   const iconKey = STATE_ICONS[stateType]
   const iconProps = getScaledIconProps(iconKey, 14)
+  const [isHover, setIsHover] = useState(false)
+  const anchorsVisible = showAnchors || isHover || isSelected
 
   // Build badges list based on features
   const badges: BadgeType[] = []
@@ -103,17 +110,16 @@ export function StateNode({
     <Group
       x={x}
       y={y}
-      draggable={!isConnectMode}
+      draggable={canDrag}
+      onMouseEnter={() => setIsHover(true)}
+      onMouseLeave={() => setIsHover(false)}
       onDragEnd={(e) => onDragEnd(e.target.x(), e.target.y())}
       onMouseDown={(e) => {
         onSelect()
-        if (isConnectMode) {
-          onBeginEdge()
-        }
         ;(e as any).cancelBubble = true
       }}
       onMouseUp={() => {
-        if (isConnecting) {
+        if (isConnecting || canCompleteSelf) {
           onCompleteEdge()
         }
       }}
@@ -221,7 +227,7 @@ export function StateNode({
       />
 
       {/* Delete button (on selection) */}
-      {isSelected && !isConnectMode && (
+      {isSelected && (
         <Group
           x={NODE_WIDTH - 20}
           y={4}
@@ -272,8 +278,8 @@ export function StateNode({
         />
       )}
 
-      {/* Connection anchors (visible in connect mode) */}
-      {isConnectMode && (
+      {/* Connection anchors (visible on hover/selection) */}
+      {anchorsVisible && (
         <Group>
           {/* Left anchor */}
           <Circle

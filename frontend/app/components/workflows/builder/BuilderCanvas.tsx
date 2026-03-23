@@ -1,11 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { Stage, Layer, Line, Arrow } from 'react-konva'
+import { Stage, Layer, Line } from 'react-konva'
 import { useBuilderStore } from '@/lib/workflow-builder/store'
 import { CANVAS_CONFIG } from '@/lib/workflow-builder/constants'
 import type { StateNodeData } from '@/lib/workflow-builder/types'
-import { StateNode, NODE_WIDTH, NODE_HEIGHT, getStateNodeAnchors } from './nodes/StateNode'
+import { StateNode, NODE_WIDTH, NODE_HEIGHT } from './nodes/StateNode'
 import { TransitionEdge, EdgePreview } from './nodes/TransitionEdge'
 import { detectStateFeatures, detectTransitionFeatures } from './utils/featureDetection'
 import { useThemeColors } from './useThemeColors'
@@ -21,8 +21,6 @@ export function BuilderCanvas() {
     selection,
     setSelection,
     clearSelection,
-    mode,
-    setMode,
     draggingItem,
     endDrag,
     dropNode,
@@ -36,6 +34,10 @@ export function BuilderCanvas() {
     fitToView,
     deleteSelection,
     template,
+    addState,
+    autoLayout,
+    undo,
+    redo,
   } = useBuilderStore()
 
   const themeColors = useThemeColors()
@@ -45,6 +47,57 @@ export function BuilderCanvas() {
   const [pointerPos, setPointerPos] = useState<{ x: number; y: number } | null>(null)
   const [editEdge, setEditEdge] = useState<{ edgeId: string; screenX: number; screenY: number } | null>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
+  const [panTool, setPanTool] = useState(false)
+  const [spaceDown, setSpaceDown] = useState(false)
+  const isPanning = (panTool || spaceDown) && !draggingItem
+  const [selectionBox, setSelectionBox] = useState<{
+    active: boolean
+    x1: number
+    y1: number
+    x2: number
+    y2: number
+  } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    cx: number
+    cy: number
+  } | null>(null)
+
+  const snapToGrid = useCallback((v: number) => {
+    const grid = 32
+    return Math.round(v / grid) * grid
+  }, [])
+
+  const toWorld = useCallback(
+    (clientX: number, clientY: number) => {
+      const stage = stageRef.current
+      if (!stage) return { x: 0, y: 0 }
+      const rect = stage.container().getBoundingClientRect()
+      const x = (clientX - rect.left - pan.x) / zoom
+      const y = (clientY - rect.top - pan.y) / zoom
+      return { x, y }
+    },
+    [pan.x, pan.y, zoom]
+  )
+
+  const centerView = useCallback(() => {
+    if (nodes.length === 0) return
+    const xs = nodes.map((n) => n.x)
+    const ys = nodes.map((n) => n.y)
+    const minX = Math.min(...xs)
+    const maxX = Math.max(...xs) + NODE_WIDTH
+    const minY = Math.min(...ys)
+    const maxY = Math.max(...ys) + NODE_HEIGHT
+    const centerX = (minX + maxX) / 2
+    const centerY = (minY + maxY) / 2
+    const newPan = {
+      x: size.w / 2 - centerX * zoom,
+      y: size.h / 2 - centerY * zoom,
+    }
+    setPan(newPan)
+  }, [nodes, size.w, size.h, zoom, setPan])
+  const [minimapDragging, setMinimapDragging] = useState(false)
 
   // Focus edge label input
   useEffect(() => {
@@ -65,6 +118,12 @@ export function BuilderCanvas() {
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName
+      const isTyping =
+        activeTag === 'INPUT' ||
+        activeTag === 'TEXTAREA' ||
+        (document.activeElement as HTMLElement | null)?.isContentEditable
+
       if (e.key === 'Escape') {
         cancelEdge()
         setEditEdge(null)
@@ -72,8 +131,31 @@ export function BuilderCanvas() {
         return
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (document.activeElement?.tagName === 'INPUT') return
+        if (isTyping) return
         deleteSelection()
+      }
+      if (e.code === 'Space' && !isTyping) {
+        e.preventDefault()
+        setSpaceDown(true)
+      }
+      if (!isTyping && !e.metaKey && !e.ctrlKey) {
+        if (e.key.toLowerCase() === 'c' && selection.nodes.length === 1 && !pendingEdgeFrom) {
+          beginEdge(selection.nodes[0])
+          return
+        }
+        if (e.key.toLowerCase() === 'n') {
+          const x = pointerPos?.x ?? (size.w / 2 - pan.x) / zoom
+          const y = pointerPos?.y ?? (size.h / 2 - pan.y) / zoom
+          addState('normal', snapToGrid(x), snapToGrid(y))
+        } else if (e.key.toLowerCase() === 's') {
+          const x = pointerPos?.x ?? (size.w / 2 - pan.x) / zoom
+          const y = pointerPos?.y ?? (size.h / 2 - pan.y) / zoom
+          addState('start', snapToGrid(x), snapToGrid(y))
+        } else if (e.key.toLowerCase() === 'f') {
+          const x = pointerPos?.x ?? (size.w / 2 - pan.x) / zoom
+          const y = pointerPos?.y ?? (size.h / 2 - pan.y) / zoom
+          addState('final', snapToGrid(x), snapToGrid(y))
+        }
       }
       // Zoom with +/-
       const zoomAt = (factor: number) => {
@@ -86,9 +168,36 @@ export function BuilderCanvas() {
       if (e.key === '=' || e.key === '+') zoomAt(1.15)
       if (e.key === '-') zoomAt(1 / 1.15)
     }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setSpaceDown(false)
+      }
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [zoom, setZoom, cancelEdge, endDrag, deleteSelection])
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [
+    zoom,
+    setZoom,
+    cancelEdge,
+    endDrag,
+    deleteSelection,
+    undo,
+    redo,
+    addState,
+    pointerPos,
+    selection.nodes,
+    pendingEdgeFrom,
+    beginEdge,
+    size.w,
+    size.h,
+    pan.x,
+    pan.y,
+    snapToGrid,
+  ])
 
   // Handle drop from sidebar
   const handleDrop = useCallback(
@@ -101,9 +210,9 @@ export function BuilderCanvas() {
       const x = (e.clientX - rect.left - pan.x) / zoom
       const y = (e.clientY - rect.top - pan.y) / zoom
 
-      dropNode(x, y)
+      dropNode(snapToGrid(x), snapToGrid(y))
     },
-    [draggingItem, pan, zoom, dropNode]
+    [draggingItem, pan, zoom, dropNode, snapToGrid, nodes, endDrag, setSelection]
   )
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -163,7 +272,9 @@ export function BuilderCanvas() {
       incomingCount: 0,
       outgoingCount: 0,
     }
-    const isConnecting = mode === 'connect' && pendingEdgeFrom && pendingEdgeFrom !== id
+    const isConnecting = !!pendingEdgeFrom && pendingEdgeFrom !== id
+    const canCompleteSelf = pendingEdgeFrom === id
+    const showAnchors = isSelected || isConnecting || canCompleteSelf
 
     return (
       <StateNode
@@ -175,17 +286,24 @@ export function BuilderCanvas() {
         stateType={data.stateType}
         features={features}
         isSelected={isSelected}
-        isConnectMode={mode === 'connect'}
+        showAnchors={showAnchors}
+        canDrag={!isPanning}
         isConnecting={!!isConnecting && isNodeNearPointer(x, y)}
-        onSelect={() => setSelection({ nodes: [id], edges: [] })}
-        onDragEnd={(newX, newY) => updateNodePosition(id, newX, newY)}
+        canCompleteSelf={canCompleteSelf}
+        onSelect={() => {
+          if (isPanning) return
+          setSelection({ nodes: [id], edges: [] })
+        }}
+        onDragEnd={(newX, newY) => updateNodePosition(id, snapToGrid(newX), snapToGrid(newY))}
         onDelete={() => removeState(id)}
         onBeginEdge={() => {
+          if (isPanning) return
           if (!pendingEdgeFrom) {
             beginEdge(id)
           }
         }}
         onCompleteEdge={() => {
+          if (isPanning) return
           if (pendingEdgeFrom && pendingEdgeFrom !== id) {
             // Show inline editor for event name
             const fromNode = nodes.find((n) => n.id === pendingEdgeFrom)
@@ -262,7 +380,7 @@ export function BuilderCanvas() {
 
   // Render edge preview when connecting
   const renderEdgePreview = () => {
-    if (mode !== 'connect' || !pendingEdgeFrom || !pointerPos) return null
+    if (!pendingEdgeFrom || !pointerPos) return null
 
     const fromNode = nodes.find((n) => n.id === pendingEdgeFrom)
     if (!fromNode) return null
@@ -281,53 +399,155 @@ export function BuilderCanvas() {
     <div
       ref={containerRef}
       className="w-full h-full bg-surface-950 dark:bg-surface-950 overflow-hidden relative"
-      style={{ backgroundColor: themeColors.canvas.background }}
+      style={{
+        backgroundColor: themeColors.canvas.background,
+        cursor: isPanning ? 'grab' : pendingEdgeFrom ? 'crosshair' : 'default',
+      }}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        const rect = containerRef.current?.getBoundingClientRect()
+        const world = toWorld(e.clientX, e.clientY)
+        const x = rect ? e.clientX - rect.left : e.clientX
+        const y = rect ? e.clientY - rect.top : e.clientY
+        setContextMenu({ x, y, cx: world.x, cy: world.y })
+      }}
     >
-      {/* Toolbar */}
-      <div className="absolute top-2 left-2 z-10 flex gap-1 bg-surface-100/90 dark:bg-surface-800/90 backdrop-blur rounded-lg p-1 shadow-lg border border-border-secondary">
+      {/* Floating toolbar (Excalidraw-style) */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 bg-surface-100/90 dark:bg-surface-800/90 backdrop-blur rounded-xl p-1.5 shadow-lg border border-border-secondary">
         <button
-          onClick={() => setMode('select')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-            mode === 'select'
+          onClick={() => setPanTool(false)}
+          className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+            !panTool
               ? 'bg-primary-600 text-white'
               : 'text-text-secondary hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-text-primary'
           }`}
-          title="Select mode (move nodes)"
+          title="Select (move nodes)"
         >
           Select
         </button>
         <button
-          onClick={() => setMode('connect')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-            mode === 'connect'
+          onClick={() => setPanTool(!panTool)}
+          className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+            panTool
               ? 'bg-primary-600 text-white'
               : 'text-text-secondary hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-text-primary'
           }`}
-          title="Connect mode (create transitions)"
+          title="Hand tool (pan)"
         >
-          Connect
+          Hand
         </button>
-        <div className="w-px bg-border-secondary mx-1" />
         <button
           onClick={() => fitToView(size.w, size.h)}
-          className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-text-primary rounded-md transition-colors"
+          className="px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-text-primary rounded-lg transition-colors"
           title="Fit to view"
         >
           Fit
         </button>
+        <button
+          onClick={() => centerView()}
+          className="px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-text-primary rounded-lg transition-colors"
+          title="Center view"
+        >
+          Center
+        </button>
+        <div className="w-px bg-border-secondary mx-1" />
+        <button
+          onClick={() => setZoom(Math.max(CANVAS_CONFIG.MIN_ZOOM, zoom / 1.15))}
+          className="px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-text-primary rounded-lg transition-colors"
+          title="Zoom out"
+        >
+          −
+        </button>
+        <button
+          onClick={() => setZoom(1)}
+          className="px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-text-primary rounded-lg transition-colors"
+          title="Reset zoom (100%)"
+        >
+          100%
+        </button>
+        <button
+          onClick={() => setZoom(Math.min(CANVAS_CONFIG.MAX_ZOOM, zoom * 1.15))}
+          className="px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-text-primary rounded-lg transition-colors"
+          title="Zoom in"
+        >
+          +
+        </button>
+        <div className="px-2 text-[11px] text-text-tertiary border-l border-border-secondary ml-1">
+          {Math.round(zoom * 100)}%
+        </div>
       </div>
 
-      {/* Zoom indicator */}
-      <div className="absolute top-2 right-2 z-10 bg-surface-100/90 dark:bg-surface-800/90 backdrop-blur rounded-lg px-3 py-1.5 text-xs text-text-secondary border border-border-secondary">
-        {Math.round(zoom * 100)}%
-      </div>
+      {/* Hint */}
+      {!pendingEdgeFrom && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 bg-surface-100/90 dark:bg-surface-800/90 backdrop-blur rounded-lg px-3 py-1.5 text-[11px] text-text-secondary border border-border-secondary">
+          Connect: drag from a node handle. Pan: hold Space or use Hand.
+        </div>
+      )}
 
-      {/* Mode indicator */}
-      {mode === 'connect' && (
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 bg-warning-600/90 backdrop-blur rounded-lg px-4 py-2 text-xs text-white font-medium shadow-lg">
-          Click a state to start, then click another state to connect
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          className="absolute z-20 min-w-[180px] rounded-lg border border-border-secondary bg-surface-50 dark:bg-surface-900 shadow-xl py-1 text-sm"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            className="w-full text-left px-3 py-1.5 hover:bg-surface-100 dark:hover:bg-surface-800 text-text-secondary"
+            onClick={() => {
+              addState('start', snapToGrid(contextMenu.cx), snapToGrid(contextMenu.cy))
+              setContextMenu(null)
+            }}
+          >
+            Add Start State
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 hover:bg-surface-100 dark:hover:bg-surface-800 text-text-secondary"
+            onClick={() => {
+              addState('normal', snapToGrid(contextMenu.cx), snapToGrid(contextMenu.cy))
+              setContextMenu(null)
+            }}
+          >
+            Add State
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 hover:bg-surface-100 dark:hover:bg-surface-800 text-text-secondary"
+            onClick={() => {
+              addState('final', snapToGrid(contextMenu.cx), snapToGrid(contextMenu.cy))
+              setContextMenu(null)
+            }}
+          >
+            Add Final State
+          </button>
+          <div className="my-1 h-px bg-border-secondary" />
+          <button
+            className="w-full text-left px-3 py-1.5 hover:bg-surface-100 dark:hover:bg-surface-800 text-text-secondary"
+            onClick={() => {
+              fitToView(size.w, size.h)
+              setContextMenu(null)
+            }}
+          >
+            Fit to View
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 hover:bg-surface-100 dark:hover:bg-surface-800 text-text-secondary"
+            onClick={() => {
+              centerView()
+              setContextMenu(null)
+            }}
+          >
+            Center View
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 hover:bg-surface-100 dark:hover:bg-surface-800 text-text-secondary"
+            onClick={async () => {
+              await autoLayout()
+              setContextMenu(null)
+            }}
+          >
+            Auto Layout
+          </button>
         </div>
       )}
 
@@ -341,7 +561,7 @@ export function BuilderCanvas() {
           scaleY={zoom}
           x={pan.x}
           y={pan.y}
-          draggable={mode === 'select' && !pendingEdgeFrom}
+          draggable={isPanning && !pendingEdgeFrom}
           onDragEnd={(e) => setPan({ x: e.target.x(), y: e.target.y() })}
           onWheel={(e) => {
             e.evt.preventDefault()
@@ -368,8 +588,13 @@ export function BuilderCanvas() {
           }}
           onMouseDown={(e) => {
             const st = e.target.getStage()
-            if (e.target === st && mode === 'select') {
+            if (contextMenu && e.evt.button === 0) {
+              setContextMenu(null)
+            }
+            if (e.target === st && !isPanning && e.evt.button === 0) {
               clearSelection()
+              const world = toWorld(e.evt.clientX, e.evt.clientY)
+              setSelectionBox({ active: true, x1: world.x, y1: world.y, x2: world.x, y2: world.y })
             }
           }}
           onMouseMove={(e) => {
@@ -378,11 +603,39 @@ export function BuilderCanvas() {
             const pos = stage.getPointerPosition()
             if (!pos) return
             setPointerPos({ x: (pos.x - pan.x) / zoom, y: (pos.y - pan.y) / zoom })
+            if (selectionBox?.active) {
+              const world = toWorld(e.evt.clientX, e.evt.clientY)
+              setSelectionBox((prev) =>
+                prev ? { ...prev, x2: world.x, y2: world.y } : prev
+              )
+            }
           }}
           onMouseUp={(e) => {
             const st = e.target.getStage()
-            if (mode === 'connect' && pendingEdgeFrom && e.target === st) {
+            if (pendingEdgeFrom && e.target === st) {
               cancelEdge()
+            }
+            if (selectionBox?.active) {
+              const xMin = Math.min(selectionBox.x1, selectionBox.x2)
+              const xMax = Math.max(selectionBox.x1, selectionBox.x2)
+              const yMin = Math.min(selectionBox.y1, selectionBox.y2)
+              const yMax = Math.max(selectionBox.y1, selectionBox.y2)
+              const width = xMax - xMin
+              const height = yMax - yMin
+              if (width > 4 && height > 4) {
+                const selectedNodes = nodes
+                  .filter((n) => n.type === 'state')
+                  .filter((n) => {
+                    const nx = n.x
+                    const ny = n.y
+                    const nRight = nx + NODE_WIDTH
+                    const nBottom = ny + NODE_HEIGHT
+                    return nRight >= xMin && nx <= xMax && nBottom >= yMin && ny <= yMax
+                  })
+                  .map((n) => n.id)
+                setSelection({ nodes: selectedNodes, edges: [] })
+              }
+              setSelectionBox(null)
             }
           }}
         >
@@ -419,6 +672,28 @@ export function BuilderCanvas() {
               }
               return lines
             })()}
+
+            {/* Selection box */}
+            {selectionBox?.active && (
+              <Line
+                points={[
+                  selectionBox.x1,
+                  selectionBox.y1,
+                  selectionBox.x2,
+                  selectionBox.y1,
+                  selectionBox.x2,
+                  selectionBox.y2,
+                  selectionBox.x1,
+                  selectionBox.y2,
+                  selectionBox.x1,
+                  selectionBox.y1,
+                ]}
+                stroke={themeColors.edges.selected}
+                strokeWidth={1}
+                dash={[4, 3]}
+                opacity={0.9}
+              />
+            )}
 
             {/* Edge preview when connecting */}
             {renderEdgePreview()}

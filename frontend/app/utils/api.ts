@@ -21,6 +21,9 @@ export interface DashboardStats {
     issued: number;
     received: number;
   };
+  dids: {
+    total: number;
+  };
   invitations: {
     pending: number;
   };
