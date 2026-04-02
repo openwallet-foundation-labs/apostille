@@ -44,7 +44,7 @@ export function PropertiesPanel() {
   }
 
   return (
-    <div className="w-72 bg-surface-50 dark:bg-surface-900 border-l border-border-secondary overflow-y-auto">
+    <div className="w-72 shrink-0 bg-surface-50 dark:bg-surface-900 border-l border-border-secondary overflow-y-auto">
       <div className="flex items-center justify-between p-3 border-b border-border-secondary">
         <h2 className="text-sm font-semibold text-text-secondary">Properties</h2>
         <button

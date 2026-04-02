@@ -164,7 +164,7 @@ export default function SignatureAdoptionModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60">
-      <div className="bg-bg-primary rounded-xl shadow-2xl w-[480px] max-h-[90vh] overflow-hidden">
+      <div className="bg-white rounded-xl shadow-2xl w-[480px] max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="px-5 py-4 border-b border-border-primary">
           <h3 className="text-lg font-semibold text-text-primary">
@@ -329,7 +329,7 @@ export default function SignatureAdoptionModal({
           <button
             onClick={handleAdopt}
             disabled={!canAdopt}
-            className="px-5 py-2 rounded-lg text-sm font-medium bg-accent-primary text-white hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-5 py-2 rounded-lg text-sm font-medium bg-accent-primary text-black hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Adopt {fieldType === 'signature' ? 'Signature' : 'Initials'}
           </button>

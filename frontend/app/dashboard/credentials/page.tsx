@@ -414,7 +414,7 @@ export default function CredentialsPage() {
 
       {/* Issue Credential Modal */}
       {showIssueModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center" style={{ zIndex: 9999 }}>
+        <div className="modal-backdrop">
           <div className="modal-container max-w-2xl">
             <div className="modal-header">
               <h2 className="modal-title">Issue New Credential</h2>

@@ -172,7 +172,7 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
       {/* Visual Builder Content */}
       <div className="flex flex-1 overflow-hidden">
         <BuilderSidebar />
-        <div className="flex-1 relative">
+        <div className="flex-1 min-w-0 relative">
           <BuilderCanvas />
         </div>
         <PropertiesPanel />

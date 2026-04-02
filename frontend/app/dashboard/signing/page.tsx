@@ -13,7 +13,7 @@ interface SigningSession {
   threadId?: string;
   object?: {
     id: string;
-    data: string;
+    data?: unknown;
     digest?: {
       algorithm: string;
       value: string;
@@ -64,6 +64,28 @@ export default function SigningPage() {
   const [selectedConnection, setSelectedConnection] = useState('');
   const [documentInput, setDocumentInput] = useState('');
   const [signingLabel, setSigningLabel] = useState('');
+
+  const formatObjectData = (data: unknown) => {
+    if (typeof data === 'string') {
+      return data;
+    }
+    if (data === null || data === undefined) {
+      return '';
+    }
+    try {
+      return JSON.stringify(data, null, 2);
+    } catch {
+      return String(data);
+    }
+  };
+
+  const getObjectPreview = (data: unknown) => {
+    const text = formatObjectData(data);
+    if (!text) {
+      return '';
+    }
+    return text.length > 100 ? text.substring(0, 100) : text;
+  };
 
   useEffect(() => {
     loadData();
@@ -442,11 +464,11 @@ export default function SigningPage() {
                       Session ID: {session.sessionId}
                     </div>
 
-                    {session.object && (
+                    {session.object && getObjectPreview(session.object.data) && (
                       <div className="text-xs text-text-secondary mb-2">
                         <div className="font-mono bg-surface-100 p-2 rounded overflow-x-auto max-w-2xl">
-                          {session.object.data.substring(0, 100)}
-                          {session.object.data.length > 100 && '...'}
+                          {getObjectPreview(session.object.data)}
+                          {formatObjectData(session.object.data).length > 100 && '...'}
                         </div>
                       </div>
                     )}
@@ -598,7 +620,9 @@ export default function SigningPage() {
                 <div>
                   <label className="block text-sm font-medium text-text-secondary mb-2">Document</label>
                   <div className="bg-surface-100 p-4 rounded-lg font-mono text-sm overflow-x-auto">
-                    <pre className="whitespace-pre-wrap text-text-primary">{selectedSession.object.data}</pre>
+                    <pre className="whitespace-pre-wrap text-text-primary">
+                      {formatObjectData(selectedSession.object.data) || 'No document data'}
+                    </pre>
                   </div>
                   {selectedSession.object.digest && (
                     <div className="mt-2 text-xs text-text-secondary">

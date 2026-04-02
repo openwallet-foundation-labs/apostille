@@ -72,7 +72,7 @@ export default function FieldPlacementEditor({
   const signatureFieldCount = fields.filter((f) => f.type === 'signature').length
 
   return (
-    <div className="fixed inset-0 z-50 bg-bg-primary flex flex-col">
+    <div className="fixed inset-0 z-50 bg-white flex flex-col !mt-0">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 bg-bg-secondary border-b border-border-primary">
         <div className="flex items-center gap-3">
@@ -94,7 +94,7 @@ export default function FieldPlacementEditor({
           <button
             onClick={() => onComplete(fields)}
             disabled={signatureFieldCount === 0}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-accent-primary text-white hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-accent-primary text-black hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Done - Send for Signing
           </button>

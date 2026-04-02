@@ -11,7 +11,7 @@ async function getPdfjs() {
   if (pdfjsLib) return pdfjsLib
   pdfjsLib = await import('pdfjs-dist')
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.mjs',
+    'pdfjs-dist/build/pdf.worker.min.mjs',
     import.meta.url
   ).toString()
   return pdfjsLib
@@ -32,6 +32,7 @@ interface PdfViewerProps {
   className?: string
   onTotalPagesChange?: (total: number) => void
   onDrop?: (e: React.DragEvent<HTMLDivElement>, page: number, dims: PageDimensions) => void
+  showControls?: boolean
 }
 
 export default function PdfViewer({
@@ -44,6 +45,7 @@ export default function PdfViewer({
   className = '',
   onTotalPagesChange,
   onDrop,
+  showControls = true,
 }: PdfViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -59,12 +61,15 @@ export default function PdfViewer({
   // Load PDF document
   useEffect(() => {
     let cancelled = false
+    let localDoc: PDFDocumentProxy | null = null
     async function load() {
       setLoading(true)
       try {
         const pdfjs = await getPdfjs()
-        const data = pdfData instanceof ArrayBuffer ? new Uint8Array(pdfData) : pdfData
+        // Clone the buffer to avoid "detached ArrayBuffer" errors from worker transfer
+        const data = pdfData instanceof ArrayBuffer ? new Uint8Array(pdfData.slice(0)) : new Uint8Array(pdfData)
         const doc = await pdfjs.getDocument({ data }).promise
+        localDoc = doc
         if (!cancelled) {
           setPdfDoc(doc)
           setTotalPages(doc.numPages)
@@ -81,6 +86,11 @@ export default function PdfViewer({
     load()
     return () => {
       cancelled = true
+      if (localDoc) {
+        localDoc.destroy().catch(() => {
+          // ignore
+        })
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfData])
@@ -169,45 +179,47 @@ export default function PdfViewer({
   return (
     <div className={`flex flex-col items-center ${className}`}>
       {/* Controls bar */}
-      <div className="flex items-center gap-3 py-2 px-4 bg-bg-secondary rounded-lg mb-3 text-sm">
-        {/* Page navigation */}
-        <button
-          onClick={() => goToPage(page - 1)}
-          disabled={page === 0}
-          className="px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-tertiary/80 disabled:opacity-40 text-text-primary"
-        >
-          &larr;
-        </button>
-        <span className="text-text-secondary min-w-[80px] text-center">
-          Page {page + 1} / {totalPages}
-        </span>
-        <button
-          onClick={() => goToPage(page + 1)}
-          disabled={page >= totalPages - 1}
-          className="px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-tertiary/80 disabled:opacity-40 text-text-primary"
-        >
-          &rarr;
-        </button>
+      {showControls && (
+        <div className="flex items-center gap-3 py-2 px-4 bg-bg-secondary rounded-lg mb-3 text-sm">
+          {/* Page navigation */}
+          <button
+            onClick={() => goToPage(page - 1)}
+            disabled={page === 0}
+            className="px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-tertiary/80 disabled:opacity-40 text-text-primary"
+          >
+            &larr;
+          </button>
+          <span className="text-text-secondary min-w-[80px] text-center">
+            Page {page + 1} / {totalPages}
+          </span>
+          <button
+            onClick={() => goToPage(page + 1)}
+            disabled={page >= totalPages - 1}
+            className="px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-tertiary/80 disabled:opacity-40 text-text-primary"
+          >
+            &rarr;
+          </button>
 
-        <div className="w-px h-5 bg-border-primary mx-1" />
+          <div className="w-px h-5 bg-border-primary mx-1" />
 
-        {/* Zoom controls */}
-        <button
-          onClick={() => setScaleValue(scale - 0.15)}
-          className="px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-tertiary/80 text-text-primary"
-        >
-          &minus;
-        </button>
-        <span className="text-text-secondary min-w-[50px] text-center">
-          {Math.round(scale * 100)}%
-        </span>
-        <button
-          onClick={() => setScaleValue(scale + 0.15)}
-          className="px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-tertiary/80 text-text-primary"
-        >
-          +
-        </button>
-      </div>
+          {/* Zoom controls */}
+          <button
+            onClick={() => setScaleValue(scale - 0.15)}
+            className="px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-tertiary/80 text-text-primary"
+          >
+            &minus;
+          </button>
+          <span className="text-text-secondary min-w-[50px] text-center">
+            {Math.round(scale * 100)}%
+          </span>
+          <button
+            onClick={() => setScaleValue(scale + 0.15)}
+            className="px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-tertiary/80 text-text-primary"
+          >
+            +
+          </button>
+        </div>
+      )}
 
       {/* PDF canvas with overlay */}
       <div

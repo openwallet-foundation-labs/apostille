@@ -201,7 +201,7 @@ export function BuilderSidebar() {
   ]
 
   return (
-    <div className="w-72 bg-surface-50 dark:bg-surface-900 border-r border-border-secondary flex flex-col">
+    <div className="w-72 shrink-0 bg-surface-50 dark:bg-surface-900 border-r border-border-secondary flex flex-col">
       {/* Tabs */}
       <div className="flex border-b border-border-secondary">
         <button

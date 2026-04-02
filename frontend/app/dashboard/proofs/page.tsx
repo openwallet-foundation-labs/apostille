@@ -993,7 +993,7 @@ export default function ProofsPage() {
 
       {/* Request Proof Modal */}
       {showRequestModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center" style={{ zIndex: 9999 }}>
+         <div className="modal-backdrop">
           <div className="modal-container max-w-2xl">
             <div className="modal-header">
               <h2 className="modal-title">Request Proof</h2>
@@ -1185,7 +1185,7 @@ export default function ProofsPage() {
 
       {/* Accept Proof Modal */}
       {showAcceptModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center" style={{ zIndex: 9999 }}>
+        <div className="modal-backdrop">
           <div className="modal-container max-w-4xl">
             <div className="modal-header">
               <h2 className="modal-title">Respond to Proof Request</h2>
@@ -1294,7 +1294,7 @@ export default function ProofsPage() {
 
       {/* Details Modal */}
       {showDetailsModal && selectedProofDetails && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center" style={{ zIndex: 9999 }}>
+        <div className="modal-backdrop">
           <div className="modal-container max-w-3xl">
             <div className="modal-header">
               <h2 className="modal-title">Proof Details</h2>

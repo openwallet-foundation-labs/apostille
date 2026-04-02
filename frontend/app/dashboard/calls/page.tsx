@@ -454,6 +454,9 @@ export default function CallsPage() {
     else stopRingtone()
   }, [status, playRingtone, stopRingtone])
 
+  const inCall = status === 'calling' || status === 'connected'
+  const callerName = incomingCall?.theirLabel || connections.find(c => c.id === incomingCall?.connectionId)?.theirLabel || 'Unknown'
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -464,8 +467,16 @@ export default function CallsPage() {
     }
   }, [stopLocalMedia, stopRingtone])
 
-  const inCall = status === 'calling' || status === 'connected'
-  const callerName = incomingCall?.theirLabel || connections.find(c => c.id === incomingCall?.connectionId)?.theirLabel || 'Unknown'
+  // Ensure local preview attaches after in-call UI mounts
+  useEffect(() => {
+    if (!inCall) return
+    const el = localVideoRef.current
+    const s = localStreamRef.current
+    if (el && s && el.srcObject !== s) {
+      el.srcObject = s
+      el.play().catch(() => {})
+    }
+  }, [inCall])
 
   return (
     <div className="h-full">

@@ -41,6 +41,23 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         const t = String(n.type)
         if (t === 'AppMessageReceived') {
           const c = n?.data?.content || '(no content)'
+          if (typeof c === 'string') {
+            try {
+              const parsed = JSON.parse(c)
+              if (parsed?.type === 'pdf-signing-shared') {
+                toast.info('New PDF received for signing')
+                return
+              }
+              if (parsed?.type === 'pdf-signing-signed-returned') {
+                toast.success('Signed PDF returned to owner')
+                return
+              }
+              if (parsed?.type === 'pdf-signing-owner-ack') {
+                toast.success('✓ Owner acknowledged the signed PDF')
+                return
+              }
+            } catch {}
+          }
           toast.info(`New message: ${c}`)
         } else if (t === 'AppMessageSent') {
           const c = n?.data?.content || '(no content)'

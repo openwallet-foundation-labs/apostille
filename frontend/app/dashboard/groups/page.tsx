@@ -85,7 +85,7 @@ export default function GroupsPage() {
   return (
     <div className="space-y-6">
       {/* Action Bar */}
-      <div className="flex justify-end gap-3">
+      {/* <div className="flex justify-end gap-3">
         <button
           onClick={() => router.push('/groups/join')}
           className="btn btn-secondary flex items-center gap-2"
@@ -101,7 +101,7 @@ export default function GroupsPage() {
         >
           Create Group
         </button>
-      </div>
+      </div> */}
 
       {/* Groups List */}
       {loading ? (

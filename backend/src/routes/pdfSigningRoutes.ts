@@ -1,10 +1,140 @@
 import { Router, Request, Response } from 'express';
 import { getAgent } from '../services/agentService';
 import { PdfUtils, SignaturePlaceholderOptions } from '@ajna-inc/signing';
+import { VaultRepository } from '@ajna-inc/vaults/build/repository/VaultRepository';
+import { VaultRecord } from '@ajna-inc/vaults/build/repository/VaultRecord';
+import { VaultEncryptionService, generateUuid, toBase64Url } from '@ajna-inc/vaults/build';
 import multer from 'multer';
 import * as crypto from 'crypto';
 
 const router = Router();
+
+const updateSigningVaultMetadata = async (
+  agent: any,
+  vaultId: string,
+  updates: Record<string, unknown>
+) => {
+  try {
+    const vaultRepo = agent.context?.dependencyManager?.resolve?.(VaultRepository);
+    if (!vaultRepo) return;
+    const record = await vaultRepo.findByVaultId(agent.context, vaultId);
+    if (!record) return;
+
+    record.header.metadata = {
+      ...(record.header.metadata || {}),
+      ...updates,
+    };
+    record.updatedAt = new Date();
+    await vaultRepo.update(agent.context, record);
+  } catch (error: any) {
+    console.warn('[PDF-Signing] Failed to update vault metadata', error?.message || error);
+  }
+};
+
+const createSignerLocalCopy = async (
+  agent: any,
+  signedPdf: Uint8Array,
+  originalMetadata: Record<string, any>,
+  signerConnectionId: string,
+  originalVaultId: string
+) => {
+  try {
+    const keypair = await agent.modules.vaults.getLocalKeypair(signerConnectionId);
+    if (!keypair) return;
+
+    const encryptionService = agent.context?.dependencyManager?.resolve?.(VaultEncryptionService);
+    const vaultRepo = agent.context?.dependencyManager?.resolve?.(VaultRepository);
+    if (!encryptionService || !vaultRepo) return;
+
+    const recipient = {
+      kid: keypair.kid,
+      publicKey: keypair.publicKey,
+    };
+
+    const docId = generateUuid();
+    const vaultId = generateUuid();
+
+    const vault = await encryptionService.encryptAnyOf(signedPdf, [recipient], { docId, vaultId });
+    vault.header.metadata = {
+      ...originalMetadata,
+      originalVaultId,
+      signerConnectionId,
+      role: 'signer',
+      isSigned: true,
+      signedAt: originalMetadata?.signedAt ?? new Date().toISOString(),
+      purpose: 'signer-copy',
+      signerLocalCopy: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    const record = new VaultRecord({
+      vaultId,
+      docId,
+      header: vault.header,
+      ciphertext: toBase64Url(vault.ciphertext),
+      ownerDid: agent.context?.contextCorrelationId,
+    });
+    await vaultRepo.save(agent.context, record);
+  } catch (error: any) {
+    console.warn('[PDF-Signing] Failed to create signer local copy:', error?.message || error);
+  }
+};
+
+const sendOwnerAckToSigner = async (
+  agent: any,
+  vaultMeta: Record<string, any> | undefined,
+  vaultId: string,
+  action: 'verified' | 'downloaded'
+) => {
+  try {
+    if (!vaultMeta?.receivedFrom || (!vaultMeta?.isSigned && vaultMeta?.role !== 'signer')) return;
+
+    // Prefer the connection this vault was received from (signer)
+    const candidateIds = [
+      vaultMeta?.receivedFrom,
+      vaultMeta?.signerConnectionId,
+    ].filter((v: any) => typeof v === 'string' && v.length > 0) as string[];
+
+    if (candidateIds.length === 0) return;
+
+    const payload = {
+      type: 'pdf-signing-owner-ack',
+      originalVaultId: vaultMeta?.originalVaultId,
+      signedVaultId: vaultId,
+      action,
+      at: new Date().toISOString(),
+    };
+
+    let lastErr: any = null;
+    for (const connectionId of candidateIds) {
+      try {
+        await agent.basicMessages.sendMessage(connectionId, JSON.stringify(payload));
+        return;
+      } catch (err: any) {
+        lastErr = err;
+      }
+    }
+
+    if (lastErr) {
+      console.warn('[PDF-Signing] Failed to send owner ack to signer:', lastErr?.message || lastErr);
+    }
+  } catch (error: any) {
+    console.warn('[PDF-Signing] Failed to send owner ack to signer:', error?.message || error);
+  }
+};
+
+const sendPdfSigningNotice = async (
+  agent: any,
+  connectionId: string,
+  payload: Record<string, unknown>
+) => {
+  try {
+    if (!connectionId) return;
+    await agent.basicMessages.sendMessage(connectionId, JSON.stringify(payload));
+  } catch (error: any) {
+    console.warn('[PDF-Signing] Failed to send notice:', error?.message || error);
+  }
+};
 
 // Configure multer for file uploads (memory storage)
 const upload = multer({
@@ -90,6 +220,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
         description: description || 'PDF for signing',
         role: 'owner',  // This user owns the document
         signerConnectionId: recipientConnectionId,  // Who should sign it
+        allowSignerCopy: true,
         createdAt: new Date().toISOString(),
         ...(signingFields.length > 0 ? { signingFields } : {}),
       },
@@ -101,6 +232,11 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
     try {
       await agent.modules.vaults.shareSigningVault(result.vaultId, recipientConnectionId);
       console.log(`[PDF-Signing] Auto-shared vault ${result.vaultId} with connection ${recipientConnectionId}`);
+      await sendPdfSigningNotice(agent, recipientConnectionId, {
+        type: 'pdf-signing-shared',
+        vaultId: result.vaultId,
+        at: new Date().toISOString(),
+      });
     } catch (shareError: any) {
       console.error(`[PDF-Signing] Failed to auto-share vault ${result.vaultId}:`, shareError.message);
       // Don't fail the upload if sharing fails - vault is still created
@@ -249,16 +385,25 @@ router.post('/sign/:vaultId', async (req: Request, res: Response) => {
         signerName: name,
         signatureReason: reason,
         isSigned: true,
+        returnedAt: new Date().toISOString(),
         role: 'signer', // Mark as signer's vault
       },
     });
 
     console.log(`[PDF-Signing] Created signed vault ${signedVault.vaultId}`);
 
+    await createSignerLocalCopy(agent, signedPdf, originalMetadata as any, signConnectionId, vaultId);
+
     // Share the signed vault back to the owner
     try {
       await agent.modules.vaults.shareSigningVault(signedVault.vaultId, signConnectionId);
       console.log(`[PDF-Signing] Shared signed vault ${signedVault.vaultId} back to owner via connection ${signConnectionId}`);
+      await sendPdfSigningNotice(agent, signConnectionId, {
+        type: 'pdf-signing-signed-returned',
+        originalVaultId: vaultId,
+        signedVaultId: signedVault.vaultId,
+        at: new Date().toISOString(),
+      });
     } catch (shareError: any) {
       console.error(`[PDF-Signing] Failed to share signed vault back to owner:`, shareError.message);
       // Don't fail the request - vault is created, sharing can be retried
@@ -332,6 +477,12 @@ router.post('/download/:vaultId', async (req: Request, res: Response) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', pdfBytes.length);
+
+    // Track owner access for completed status
+    await updateSigningVaultMetadata(agent, vaultId, {
+      downloadedAt: new Date().toISOString(),
+    });
+    await sendOwnerAckToSigner(agent, vaultInfo.header?.metadata, vaultId, 'downloaded');
 
     // Send the PDF
     res.send(Buffer.from(pdfBytes));
@@ -409,6 +560,7 @@ router.post('/upload-signed/:vaultId', upload.single('file'), async (req: Reques
         signedAt: new Date().toISOString(),
         signerName: signerName || 'Unknown',
         isSigned: true,
+        returnedAt: new Date().toISOString(),
         role: 'signer',
         signedClientSide: true, // Flag to indicate client-side signing
       },
@@ -416,10 +568,18 @@ router.post('/upload-signed/:vaultId', upload.single('file'), async (req: Reques
 
     console.log(`[PDF-Signing] Created client-side signed vault ${signedVault.vaultId} for original ${vaultId}`);
 
+    await createSignerLocalCopy(agent, signedPdfBytes, originalMetadata as any, uploadConnectionId, vaultId);
+
     // Share the signed vault back to the owner
     try {
       await agent.modules.vaults.shareSigningVault(signedVault.vaultId, uploadConnectionId);
       console.log(`[PDF-Signing] Shared signed vault ${signedVault.vaultId} back to owner via connection ${uploadConnectionId}`);
+      await sendPdfSigningNotice(agent, uploadConnectionId, {
+        type: 'pdf-signing-signed-returned',
+        originalVaultId: vaultId,
+        signedVaultId: signedVault.vaultId,
+        at: new Date().toISOString(),
+      });
     } catch (shareError: any) {
       console.error(`[PDF-Signing] Failed to share signed vault back to owner:`, shareError.message);
       // Don't fail the request - vault is created, sharing can be retried
@@ -491,6 +651,11 @@ router.post('/share/:vaultId', async (req: Request, res: Response) => {
     await agent.modules.vaults.shareSigningVault(vaultId, connectionId);
 
     console.log(`[PDF-Signing] Shared vault ${vaultId} with connection ${connectionId}`);
+    await sendPdfSigningNotice(agent, connectionId, {
+      type: 'pdf-signing-shared',
+      vaultId,
+      at: new Date().toISOString(),
+    });
 
     res.json({
       success: true,
@@ -569,6 +734,13 @@ router.post('/return/:vaultId', async (req: Request, res: Response) => {
       },
     });
 
+    await sendPdfSigningNotice(agent, ownerConnectionId, {
+      type: 'pdf-signing-signed-returned',
+      originalVaultId: vaultMetadata.originalVaultId || vaultId,
+      signedVaultId: result.vaultId,
+      at: new Date().toISOString(),
+    });
+
     res.json({
       success: true,
       returnedVault: {
@@ -641,6 +813,13 @@ router.post('/verify/:vaultId', async (req: Request, res: Response) => {
 
     // Verify the signature
     const verificationResult = await PdfUtils.verifyPdfSignature(pdfBytes);
+
+    await updateSigningVaultMetadata(agent, vaultId, {
+      verifiedAt: new Date().toISOString(),
+      verificationValid: verificationResult.valid,
+      verificationError: verificationResult.error || undefined,
+    });
+    await sendOwnerAckToSigner(agent, vaultRecord.header?.metadata, vaultId, 'verified');
 
     res.json({
       success: true,
@@ -777,7 +956,7 @@ router.get('/status', async (req: Request, res: Response) => {
     // receivedFrom/receivedAt. So we use receivedFrom as the primary signal
     // that we received this vault from someone else.
     const ownedVaults: any[] = [];
-    const receivedVaults: any[] = [];
+    let receivedVaults: any[] = [];
 
     for (const vault of pdfVaults) {
       const meta = vault.header?.metadata;
@@ -806,11 +985,35 @@ router.get('/status', async (req: Request, res: Response) => {
 
     console.log('[PDF-Signing] Owned vaults:', ownedVaults.length, 'Received vaults:', receivedVaults.length);
 
+    // If a signer-local copy exists for an original, hide other signer vaults for the same original
+    const signerLocalCopyOriginalIds = new Set(
+      receivedVaults
+        .filter((v: any) => v.header?.metadata?.signerLocalCopy && v.header?.metadata?.originalVaultId)
+        .map((v: any) => v.header?.metadata?.originalVaultId)
+    );
+    if (signerLocalCopyOriginalIds.size > 0) {
+      receivedVaults = receivedVaults.filter((v: any) => {
+        const meta = v.header?.metadata;
+        if (!meta?.originalVaultId) return true;
+        if (meta?.signerLocalCopy) return true;
+        return !signerLocalCopyOriginalIds.has(meta.originalVaultId);
+      });
+    }
+
+    const signedOriginalIds = new Set(
+      pdfVaults
+        .filter((v: any) => v.header?.metadata?.isSigned || v.header?.metadata?.returnedAt)
+        .map((v: any) => v.header?.metadata?.originalVaultId)
+        .filter((id: any) => typeof id === 'string' && id.length > 0)
+    );
+
     // Owner's view - use session state OR vault metadata to determine if signed
     const pendingToShare: any[] = []; // Empty - we auto-share now
     const awaitingSignature = ownedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
       const sessionState = getSessionSigningState(v.vaultId);
+      // If a signed vault references this as the original, it's no longer awaiting
+      if (signedOriginalIds.has(v.vaultId)) return false;
       // If session says signed, it's not awaiting
       if (sessionState === 'signed') return false;
       // If vault metadata says signed (e.g. returned signed document), it's not awaiting
@@ -824,13 +1027,17 @@ router.get('/status', async (req: Request, res: Response) => {
     const signedVaults = ownedVaults.filter((v: any) => {
       const sessionState = getSessionSigningState(v.vaultId);
       const meta = v.header?.metadata;
-      return (sessionState === 'signed' || meta?.isSigned) && !meta?.returnedAt;
+      const isSigned = sessionState === 'signed' || meta?.isSigned;
+      // Keep signed docs in Owner "Signed Documents" even after verify/download
+      return isSigned;
     });
 
     // Signer's view - use session state
     const toSign = receivedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
       const sessionState = getSessionSigningState(v.vaultId);
+      // If a signed vault references this as the original, it's no longer to sign
+      if (signedOriginalIds.has(v.vaultId)) return false;
       // Session says signed → not to sign
       if (sessionState === 'signed') return false;
       // Vault metadata says signed → not to sign
@@ -840,14 +1047,15 @@ router.get('/status', async (req: Request, res: Response) => {
     const signedToReturn = receivedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
       const sessionState = getSessionSigningState(v.vaultId);
-      // Session state or metadata indicates signed, and not returned yet
-      return (sessionState === 'signed' || meta?.isSigned) && !meta?.returnedAt;
+      // Session state or metadata indicates signed, and owner has not yet acknowledged
+      return (sessionState === 'signed' || meta?.isSigned) && !meta?.ownerAckAt;
     });
 
-    // Completed (both roles) - explicitly returned
-    const completed = pdfVaults.filter((v: any) => {
+    // Completed - owner ack (owner side) OR owner-ack received (signer side)
+    // Completed (signer view) - owner acknowledged (verify/download)
+    const completed = receivedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
-      return meta?.returnedAt;
+      return !!meta?.ownerAckAt;
     });
 
     // Helper to map vault to response format with session state
@@ -862,10 +1070,19 @@ router.get('/status', async (req: Request, res: Response) => {
         status: v.header?.metadata?.status,
         signerConnectionId: v.header?.metadata?.signerConnectionId,
         ownerConnectionId: v.header?.metadata?.ownerConnectionId,
+        allowSignerCopy: v.header?.metadata?.allowSignerCopy,
         isSigned: sessionState === 'signed' || v.header?.metadata?.isSigned,
         signedAt: v.header?.metadata?.signedAt,
         sharedAt: v.header?.metadata?.sharedAt,
-        returnedAt: v.header?.metadata?.returnedAt,
+        returnedAt:
+          v.header?.metadata?.returnedAt ||
+          (v.header?.metadata?.role === 'signer' ? v.header?.metadata?.receivedAt : undefined),
+        downloadedAt: v.header?.metadata?.downloadedAt,
+        verifiedAt: v.header?.metadata?.verifiedAt,
+        verificationValid: v.header?.metadata?.verificationValid,
+        ownerAckAt: v.header?.metadata?.ownerAckAt,
+        ownerAckAction: v.header?.metadata?.ownerAckAction,
+        signerLocalCopy: v.header?.metadata?.signerLocalCopy,
         createdAt: v.header?.metadata?.createdAt || v.createdAt,
         signingFields: v.header?.metadata?.signingFields,
         // Session info for debugging/UI

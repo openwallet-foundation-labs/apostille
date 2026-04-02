@@ -402,6 +402,7 @@
   /* Modal backdrop */
   .modal-backdrop {
     @apply fixed inset-0 bg-black/50 flex items-center justify-center;
+    margin: 0 !important;
     z-index: 9999;
   }
 

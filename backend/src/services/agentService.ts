@@ -1,5 +1,7 @@
 import 'reflect-metadata';
 import { Agent, ConsoleLogger, LogLevel, DidsModule, HttpOutboundTransport, WsOutboundTransport, ConnectionsModule, CredentialsModule, AutoAcceptCredential, V2CredentialProtocol, ProofsModule, AutoAcceptProof, V2ProofProtocol, ConnectionEventTypes, DidExchangeState, InjectionSymbols, BasicMessageEventTypes, WebDidResolver } from '@credo-ts/core';
+import { VaultRepository } from '@ajna-inc/vaults/build/repository/VaultRepository';
+import { Protocol } from '@credo-ts/core/build/agent/models/features';
 // BasicMessageStateChangedEvent type used implicitly in KEM handler event typing
 import { agentDependencies, HttpInboundTransport, WsInboundTransport } from '@credo-ts/node';
 import { AskarModule } from '@credo-ts/askar';
@@ -24,6 +26,7 @@ import {
     AnonCredsProofFormatService,
 } from '@credo-ts/anoncreds'
 import { WorkflowModule, WorkflowCommandRepository, WorkflowInstanceRepository, WorkflowTemplateRepository, WorkflowService, CommandQueueService, PersistentCommandQueue } from '@ajna-inc/workflow/build'
+// import { registerWorkflowActionOverrides } from './workflowActions'
 import { WebRTCModule } from '@ajna-inc/webrtc'
 import { SigningModule } from '@ajna-inc/signing'
 import { VaultsModule } from '@ajna-inc/vaults'
@@ -474,6 +477,16 @@ async function initializeAgent(walletId: string, walletKey: string, multiWalletD
             console.warn('Failed to register WS inbound transport', { error: (e as Error).message });
         }
         await agent.initialize();
+        try {
+            agent.features.register(new Protocol({ id: KEM_PROTOCOL_URI }));
+        } catch (error: any) {
+            console.warn('[KEM] Failed to register protocol feature:', error?.message || error);
+        }
+        // try {
+        //     registerWorkflowActionOverrides(agent);
+        // } catch (e) {
+        //     console.warn('[Workflow] Failed to register action overrides', { error: (e as Error).message });
+        // }
         console.log(`Agent initialized successfully for wallet: ${walletId}`);
         console.log('Mock POE programs registered via module config');
 
@@ -496,6 +509,10 @@ const setupConnectionListener = async (agent: Agent) => {
         if (payload.connectionRecord.state === DidExchangeState.Completed) {
             const connectionId = payload.connectionRecord.id
             const oobId = payload.connectionRecord.outOfBandId
+
+            autoKemExchangeIfSupported(agent, connectionId).catch((error) => {
+                console.warn('[KEM] Auto-exchange failed on connection completion:', (error as Error).message);
+            });
 
             // Use environment variable for platform tenant, skip auto-credential flow if not configured
             const platformTenantId = process.env.PLATFORM_TENANT_ID;
@@ -630,6 +647,102 @@ const setupConnectionListener = async (agent: Agent) => {
 
 // Tag for pending KEM key exchange requests (kept in genericRecords)
 const KEM_PENDING_REQUEST_TAG = 'kem-pending-request';
+const KEM_PROTOCOL_URI = 'https://essi.studio/kem-key-exchange/1.0';
+const KEM_FEATURE_MATCH = 'https://essi.studio/kem-key-exchange/*';
+const KEM_DISCOVERY_TIMEOUT_MS = 5000;
+
+const discoverKemSupport = async (agent: Agent<any>, connectionId: string): Promise<boolean> => {
+    try {
+        const result = await agent.discovery.queryFeatures({
+            connectionId,
+            protocolVersion: 'v2',
+            queries: [{ featureType: 'protocol', match: KEM_FEATURE_MATCH }],
+            awaitDisclosures: true,
+            awaitDisclosuresTimeoutMs: KEM_DISCOVERY_TIMEOUT_MS,
+        });
+        const features = result?.features || [];
+        return features.some((f: any) => f.type === 'protocol' && f.id?.startsWith(KEM_PROTOCOL_URI));
+    } catch (error) {
+        console.warn('[KEM] Feature discovery failed:', (error as Error).message);
+        return false;
+    }
+};
+
+const autoAcceptKemExchange = async (agent: Agent<any>, connectionId: string) => {
+    // Check if there's a pending request
+    const pendingRequests = await agent.genericRecords.findAllByQuery({
+        type: KEM_PENDING_REQUEST_TAG,
+        connectionId: connectionId,
+        status: 'pending',
+    });
+
+    if (pendingRequests.length === 0) return;
+
+    // Ensure we have a local keypair
+    const existingKeypair = await agent.modules.vaults.getLocalKeypair(connectionId);
+
+    let keypair: { kid: string; publicKey: Uint8Array; secretKey: Uint8Array };
+
+    if (existingKeypair) {
+        keypair = existingKeypair;
+    } else {
+        keypair = agent.modules.vaults.generateKemKeypair();
+        await agent.modules.vaults.storeLocalKeypair(connectionId, keypair);
+    }
+
+    const kemKeyMessage = JSON.stringify({
+        type: 'kem-key-exchange',
+        kid: keypair.kid,
+        publicKey: Buffer.from(keypair.publicKey).toString('base64url'),
+        algorithm: 'ML-KEM-768',
+        timestamp: new Date().toISOString(),
+    });
+
+    await agent.basicMessages.sendMessage(connectionId, kemKeyMessage);
+
+    const pendingRecord = pendingRequests[0];
+    pendingRecord.content = {
+        ...pendingRecord.content,
+        status: 'accepted',
+        acceptedAt: new Date().toISOString(),
+    };
+    pendingRecord.setTag('status', 'accepted');
+    await agent.genericRecords.update(pendingRecord);
+};
+
+const autoKemExchangeIfSupported = async (agent: Agent<any>, connectionId: string) => {
+    const supported = await discoverKemSupport(agent, connectionId);
+    if (!supported) return;
+
+    // If we have an incoming pending request, accept it
+    const pendingRequests = await agent.genericRecords.findAllByQuery({
+        type: KEM_PENDING_REQUEST_TAG,
+        connectionId: connectionId,
+        status: 'pending',
+    });
+    if (pendingRequests.length > 0) {
+        await autoAcceptKemExchange(agent, connectionId);
+        return;
+    }
+
+    // If we already have a local keypair, don't re-send
+    const existingKeypair = await agent.modules.vaults.getLocalKeypair(connectionId);
+    if (existingKeypair) return;
+
+    // Initiate exchange
+    const keypair = agent.modules.vaults.generateKemKeypair();
+    await agent.modules.vaults.storeLocalKeypair(connectionId, keypair);
+
+    const kemKeyMessage = JSON.stringify({
+        type: 'kem-key-exchange',
+        kid: keypair.kid,
+        publicKey: Buffer.from(keypair.publicKey).toString('base64url'),
+        algorithm: 'ML-KEM-768',
+        timestamp: new Date().toISOString(),
+    });
+
+    await agent.basicMessages.sendMessage(connectionId, kemKeyMessage);
+};
 
 /**
  * Process any existing unprocessed KEM key exchange messages
@@ -702,11 +815,51 @@ const processExistingKemMessages = async (agent: Agent<any>) => {
                         },
                     });
                     console.log(`[KEM] Created pending request for connection ${connectionId} from existing message`);
+                    try {
+                        await autoAcceptKemExchange(agent, connectionId);
+                        console.log(`[KEM] Auto-accepted key exchange for connection ${connectionId} (existing message)`);
+                    } catch (error: any) {
+                        console.warn(`[KEM] Auto-accept failed for connection ${connectionId}: ${error?.message || error}`);
+                    }
                 }
             }
         }
     } catch (error) {
         console.error('[KEM] Error processing existing messages:', error);
+    }
+};
+
+const applyOwnerAckToSigningVault = async (
+    agent: Agent<any>,
+    opts: { signedVaultId?: string; originalVaultId?: string; action?: string; at?: string; fromConnectionId?: string }
+) => {
+    try {
+        const vaultRepo = agent.context?.dependencyManager?.resolve?.(VaultRepository);
+        if (!vaultRepo) return;
+
+        const vaults = await agent.modules.vaults.list();
+        const targets = vaults.filter((v: any) => {
+            if (opts.signedVaultId && v.vaultId === opts.signedVaultId) return true;
+            if (opts.originalVaultId && v.header?.metadata?.originalVaultId === opts.originalVaultId) return true;
+            return false;
+        });
+
+        if (targets.length === 0) return;
+
+        for (const v of targets) {
+            const record = await vaultRepo.findByVaultId(agent.context, v.vaultId);
+            if (!record) continue;
+            record.header.metadata = {
+                ...(record.header.metadata || {}),
+                ownerAckAt: opts.at || new Date().toISOString(),
+                ownerAckAction: opts.action || 'verified',
+                ownerAckFrom: opts.fromConnectionId,
+            };
+            record.updatedAt = new Date();
+            await vaultRepo.update(agent.context, record);
+        }
+    } catch (error: any) {
+        console.warn('[PDF-Signing] Failed to apply owner ack:', error?.message || error);
     }
 };
 
@@ -735,15 +888,45 @@ const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
             // Only process received messages
             if (role !== 'receiver') return;
 
-            // Try to parse as KEM key exchange message
-            let kemData: { type: string; kid: string; publicKey: string; algorithm?: string } | null = null;
+            // Try to parse as JSON message
+            let parsed: any = null;
             try {
-                kemData = JSON.parse(content);
+                parsed = JSON.parse(content);
             } catch {
-                // Not JSON, not a KEM message
+                // Not JSON, ignore
                 return;
             }
 
+            // Handle owner ack for signing completion
+            if (parsed?.type === 'pdf-signing-owner-ack') {
+                const { originalVaultId, signedVaultId, action, at } = parsed || {};
+                if (!originalVaultId && !signedVaultId) return;
+
+                console.log(`[PDF-Signing] Received owner ack via basic message for vault ${signedVaultId || originalVaultId}`);
+
+                let targetAgent: any = agent;
+                if (contextCorrelationId && contextCorrelationId !== 'default') {
+                    try {
+                        targetAgent = await getAgent({ tenantId: contextCorrelationId });
+                        console.log(`[PDF-Signing] Using tenant agent context: ${contextCorrelationId}`);
+                    } catch (e: any) {
+                        console.warn(`[PDF-Signing] Could not get tenant agent for ${contextCorrelationId}: ${e.message}`);
+                    }
+                }
+
+                await applyOwnerAckToSigningVault(targetAgent, {
+                    originalVaultId,
+                    signedVaultId,
+                    action,
+                    at,
+                    fromConnectionId: connectionId,
+                });
+
+                return;
+            }
+
+            // KEM key exchange
+            const kemData = parsed as { type: string; kid: string; publicKey: string; algorithm?: string };
             if (kemData?.type !== 'kem-key-exchange' || !kemData.kid || !kemData.publicKey) {
                 return; // Not a KEM key exchange message
             }
@@ -797,8 +980,20 @@ const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
                         },
                     });
                     console.log(`[KEM] Created pending key exchange request for connection ${connectionId}`);
+                    try {
+                        await autoAcceptKemExchange(targetAgent, connectionId);
+                        console.log(`[KEM] Auto-accepted key exchange for connection ${connectionId}`);
+                    } catch (error: any) {
+                        console.warn(`[KEM] Auto-accept failed for connection ${connectionId}: ${error?.message || error}`);
+                    }
                 } else {
                     console.log(`[KEM] Pending request already exists for connection ${connectionId}`);
+                    try {
+                        await autoAcceptKemExchange(targetAgent, connectionId);
+                        console.log(`[KEM] Auto-accepted existing pending request for connection ${connectionId}`);
+                    } catch (error: any) {
+                        console.warn(`[KEM] Auto-accept failed for connection ${connectionId}: ${error?.message || error}`);
+                    }
                 }
             } else {
                 // We already have a keypair - this is a response to our request
