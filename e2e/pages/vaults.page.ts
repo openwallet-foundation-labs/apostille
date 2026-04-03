@@ -4,6 +4,9 @@ export class VaultsPage {
   constructor(private page: Page) {}
 
   async goto() {
+    // Close any open modal first (e.g. from a previous serial test)
+    await this.closeModalIfOpen();
+
     const currentUrl = this.page.url();
     if (currentUrl.includes('/dashboard')) {
       await this.page.getByRole('link', { name: 'Vaults', exact: true }).click();
@@ -14,6 +17,17 @@ export class VaultsPage {
     await this.page
       .getByRole('heading', { name: 'Encrypted Vaults' })
       .waitFor({ timeout: 15_000 });
+  }
+
+  async closeModalIfOpen() {
+    const closeBtn = this.page.locator('.modal-container svg').first();
+    if (await closeBtn.isVisible().catch(() => false)) {
+      await closeBtn.click();
+      await this.page
+        .locator('.modal-backdrop')
+        .waitFor({ state: 'hidden', timeout: 3_000 })
+        .catch(() => {});
+    }
   }
 
   async expectEmptyState() {
@@ -57,6 +71,11 @@ export class VaultsPage {
       .locator('.modal-container')
       .getByRole('button', { name: 'Create Vault' })
       .click();
+
+    // Wait for modal to close (indicates success)
+    await expect(
+      this.page.locator('h3', { hasText: 'Create Encrypted Vault' })
+    ).not.toBeVisible({ timeout: 30_000 });
   }
 
   async expectCreateButtonDisabled() {
@@ -106,8 +125,9 @@ export class VaultsPage {
   }
 
   async expectDecryptSuccess() {
+    // Use the modal heading/span specifically to avoid strict mode conflict with toast
     await expect(
-      this.page.getByText('Vault Decrypted Successfully')
+      this.page.locator('.modal-container').getByText('Vault Decrypted Successfully')
     ).toBeVisible({ timeout: 30_000 });
   }
 
@@ -158,9 +178,10 @@ export class VaultsPage {
   }
 
   async expectToast(text: string) {
-    await expect(
-      this.page.locator('.Toastify__toast-body', { hasText: text })
-    ).toBeVisible({ timeout: 15_000 });
+    // Toast may use different class structures; try role-based first, then class-based
+    const toastByRole = this.page.getByRole('alert').filter({ hasText: text });
+    const toastByClass = this.page.locator('.Toastify__toast-body', { hasText: text });
+    await expect(toastByRole.or(toastByClass)).toBeVisible({ timeout: 15_000 });
   }
 
   async expectVaultInList(filename: string) {

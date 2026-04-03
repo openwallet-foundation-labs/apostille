@@ -22,7 +22,9 @@ export interface TenantContext {
   tenantId: string;
 }
 
-interface TwoTenantFixture {
+// Worker-scoped fixtures persist across all tests in the same worker.
+// With workers: 1, registration happens once per full test run.
+interface WorkerFixtures {
   tenantA: TenantContext;
   tenantB: TenantContext;
 }
@@ -89,21 +91,36 @@ async function createTenantContext(
   return { context, page, email, password, tenantId };
 }
 
-export const test = base.extend<TwoTenantFixture>({
-  // tenantB depends on tenantA to ensure sequential registration
-  // (concurrent agent creation can overwhelm the backend)
-  tenantA: async ({ browser }, use) => {
+// Second type parameter = worker-scoped fixtures
+export const test = base.extend<{}, WorkerFixtures>({
+  tenantA: [async ({ browser }, use) => {
     const ctx = await createTenantContext(browser, 'tenant-a');
     await use(ctx);
     await ctx.context.close();
-  },
-  tenantB: async ({ browser, tenantA }, use) => {
+  }, { scope: 'worker' }],
+
+  tenantB: [async ({ browser, tenantA }, use) => {
     // tenantA dependency ensures sequential creation
     void tenantA;
     const ctx = await createTenantContext(browser, 'tenant-b');
     await use(ctx);
     await ctx.context.close();
-  },
+  }, { scope: 'worker' }],
 });
+
+/** Re-login if the session was lost (page redirected to /login). */
+export async function ensureLoggedIn(tenant: TenantContext) {
+  const url = tenant.page.url();
+  if (!url.includes('/dashboard')) {
+    await tenant.page.goto('/login');
+    await tenant.page.waitForTimeout(1_000);
+    if (!tenant.page.url().includes('/dashboard')) {
+      await tenant.page.locator('#email').fill(tenant.email);
+      await tenant.page.locator('#password').fill(tenant.password);
+      await tenant.page.locator('button[type="submit"]').click();
+      await tenant.page.waitForURL('**/dashboard', { timeout: 30_000 });
+    }
+  }
+}
 
 export { expect } from '@playwright/test';

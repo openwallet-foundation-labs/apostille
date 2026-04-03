@@ -9,6 +9,13 @@ import SigningGuidedView from '../../components/pdf-signing/SigningGuidedView';
 import type { SigningField } from '../../components/pdf-signing/types';
 import { useNotifications } from '../../context/NotificationContext';
 
+interface SigningProgress {
+  signed: number;
+  required: number;
+  total: number;
+  signers?: { connectionId: string; isSigned: boolean }[];
+}
+
 interface PdfVault {
   vaultId: string;
   filename?: string;
@@ -30,6 +37,12 @@ interface PdfVault {
   signerLocalCopy?: boolean;
   createdAt?: string;
   signingFields?: SigningField[];
+  // Multi-recipient fields
+  signingGroupId?: string;
+  threshold?: number;
+  totalSigners?: number;
+  signerIndex?: number;
+  signingProgress?: SigningProgress;
 }
 
 interface Connection {
@@ -76,7 +89,8 @@ export default function PdfSigningPage() {
   // Upload modal state
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadConnectionId, setUploadConnectionId] = useState('');
+  const [uploadConnectionIds, setUploadConnectionIds] = useState<string[]>([]);
+  const [uploadThreshold, setUploadThreshold] = useState<number>(0); // 0 = all must sign
   const [uploadDescription, setUploadDescription] = useState('');
   const [uploading, setUploading] = useState(false);
 
@@ -310,8 +324,8 @@ export default function PdfSigningPage() {
 
   // Step 1 of upload: validate inputs, read file, show field editor
   const handleUploadStep1 = async () => {
-    if (!uploadFile || !uploadConnectionId) {
-      toast.error('Please select a PDF and a recipient connection');
+    if (!uploadFile || uploadConnectionIds.length === 0) {
+      toast.error('Please select a PDF and at least one recipient');
       return;
     }
 
@@ -320,9 +334,20 @@ export default function PdfSigningPage() {
       return;
     }
 
-    const kemStatus = kemStatuses[uploadConnectionId];
-    if (!kemStatus?.ready) {
-      toast.error('Please select a connection with encryption keys ready');
+    // Validate all selected connections have KEM keys ready
+    for (const connId of uploadConnectionIds) {
+      const kemStatus = kemStatuses[connId];
+      if (!kemStatus?.ready) {
+        const conn = connections.find(c => c.id === connId);
+        toast.error(`Encryption keys not ready for ${conn?.theirLabel || connId}`);
+        return;
+      }
+    }
+
+    // Validate threshold
+    const effectiveThreshold = uploadThreshold || uploadConnectionIds.length;
+    if (effectiveThreshold < 1 || effectiveThreshold > uploadConnectionIds.length) {
+      toast.error(`Required signatures must be between 1 and ${uploadConnectionIds.length}`);
       return;
     }
 
@@ -335,17 +360,28 @@ export default function PdfSigningPage() {
 
   // Step 2 of upload: after field placement, upload the PDF with fields
   const handleUploadWithFields = async (fields: SigningField[]) => {
-    if (!uploadFile || !uploadConnectionId) return;
+    if (!uploadFile || uploadConnectionIds.length === 0) return;
 
     setShowFieldEditor(false);
     setFieldEditorPdfData(null);
     setUploading(true);
     try {
-      const response = await pdfSigningApi.upload(uploadFile, uploadConnectionId, uploadDescription, fields);
+      const effectiveThreshold = uploadThreshold || uploadConnectionIds.length;
+      const response = await pdfSigningApi.upload(
+        uploadFile,
+        uploadConnectionIds,
+        uploadDescription,
+        fields,
+        uploadConnectionIds.length > 1 ? effectiveThreshold : undefined
+      );
       if (response.success) {
-        toast.success('PDF uploaded and encrypted successfully!');
+        const msg = uploadConnectionIds.length > 1
+          ? `PDF uploaded and sent to ${uploadConnectionIds.length} recipients!`
+          : 'PDF uploaded and encrypted successfully!';
+        toast.success(msg);
         setUploadFile(null);
-        setUploadConnectionId('');
+        setUploadConnectionIds([]);
+        setUploadThreshold(0);
         setUploadDescription('');
         loadData();
       }
@@ -1333,6 +1369,37 @@ export default function PdfSigningPage() {
                                 {vault.description && <span>{vault.description} • </span>}
                                 Shared: {vault.sharedAt ? new Date(vault.sharedAt).toLocaleDateString() : 'Unknown'}
                               </div>
+                              {/* Multi-recipient signing progress */}
+                              {vault.signingProgress && vault.signingProgress.total > 1 && (
+                                <div className="mt-1">
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full max-w-[120px]">
+                                      <div
+                                        className="h-1.5 bg-blue-500 rounded-full transition-all"
+                                        style={{ width: `${Math.min(100, (vault.signingProgress.signed / vault.signingProgress.required) * 100)}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-xs text-text-secondary">
+                                      {vault.signingProgress.signed}/{vault.signingProgress.required} signed
+                                      {vault.signingProgress.total !== vault.signingProgress.required &&
+                                        ` (${vault.signingProgress.total} total)`}
+                                    </span>
+                                  </div>
+                                  {vault.signingProgress.signers && (
+                                    <div className="flex gap-1 mt-1">
+                                      {vault.signingProgress.signers.map((s, idx) => (
+                                        <span
+                                          key={idx}
+                                          className={`inline-block w-2 h-2 rounded-full ${
+                                            s.isSigned ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+                                          }`}
+                                          title={`Signer ${idx + 1}: ${s.isSigned ? 'Signed' : 'Pending'}`}
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="flex gap-2">
@@ -1381,6 +1448,12 @@ export default function PdfSigningPage() {
                                 {vault.description && <span>{vault.description} • </span>}
                                 Signed: {vault.signedAt ? new Date(vault.signedAt).toLocaleDateString() : 'Recently'}
                               </div>
+                              {vault.signingProgress && vault.signingProgress.total > 1 && (
+                                <div className="text-xs text-green-600 dark:text-green-400 mt-0.5">
+                                  {vault.signingProgress.signed}/{vault.signingProgress.required} signatures collected
+                                  {vault.signingProgress.signed >= vault.signingProgress.required && ' — Threshold met'}
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="flex gap-2">
@@ -1507,40 +1580,82 @@ export default function PdfSigningPage() {
               </div>
 
               <div>
-                <label className="form-label">Send to (encrypted)</label>
-                <select
-                  value={uploadConnectionId}
-                  onChange={(e) => setUploadConnectionId(e.target.value)}
-                  className="input w-full"
-                >
-                  <option value="">-- Select a recipient --</option>
+                <label className="form-label">Send to (encrypted) — select one or more</label>
+                <div className="border border-border-primary rounded-md max-h-48 overflow-y-auto">
+                  {connections.length === 0 && (
+                    <p className="px-3 py-4 text-sm text-warning-600">
+                      No active connections found. Create a connection first.
+                    </p>
+                  )}
                   {connections.map((conn) => {
                     const kemStatus = kemStatuses[conn.id];
                     const isReady = kemStatus?.ready;
+                    const isSelected = uploadConnectionIds.includes(conn.id);
                     return (
-                      <option
+                      <label
                         key={conn.id}
-                        value={conn.id}
-                        disabled={!isReady}
+                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-bg-secondary transition-colors ${
+                          !isReady ? 'opacity-50 cursor-not-allowed' : ''
+                        } ${isSelected ? 'bg-primary-50 dark:bg-primary-900/20' : ''}`}
                       >
-                        {isReady ? '🔒 ' : '⚠️ '}
-                        {conn.theirLabel || conn.id}
-                        {!isReady && ' (keys not exchanged)'}
-                      </option>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={!isReady}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setUploadConnectionIds(prev => [...prev, conn.id]);
+                            } else {
+                              setUploadConnectionIds(prev => prev.filter(id => id !== conn.id));
+                            }
+                          }}
+                          className="rounded border-border-primary"
+                        />
+                        <span className="text-sm">
+                          {isReady ? '🔒 ' : '⚠️ '}
+                          {conn.theirLabel || conn.id}
+                          {!isReady && ' (keys not exchanged)'}
+                        </span>
+                      </label>
                     );
                   })}
-                </select>
+                </div>
                 {connections.length > 0 && !connections.some(c => kemStatuses[c.id]?.ready) && (
                   <p className="mt-2 text-sm text-warning-600">
                     No connections have encryption keys ready. Go to Connections page to exchange keys first.
                   </p>
                 )}
-                {connections.length === 0 && (
-                  <p className="mt-2 text-sm text-warning-600">
-                    No active connections found. Create a connection first.
+                {uploadConnectionIds.length > 0 && (
+                  <p className="mt-1 text-xs text-text-secondary">
+                    {uploadConnectionIds.length} recipient{uploadConnectionIds.length > 1 ? 's' : ''} selected
                   </p>
                 )}
               </div>
+
+              {/* Threshold input — only show when multiple recipients selected */}
+              {uploadConnectionIds.length > 1 && (
+                <div>
+                  <label className="form-label">Required signatures</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={uploadConnectionIds.length}
+                      value={uploadThreshold || uploadConnectionIds.length}
+                      onChange={(e) => setUploadThreshold(parseInt(e.target.value, 10) || 0)}
+                      className="input w-20 text-center"
+                    />
+                    <span className="text-sm text-text-secondary">
+                      of {uploadConnectionIds.length} signers must sign
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-text-secondary">
+                    {(uploadThreshold || uploadConnectionIds.length) === uploadConnectionIds.length
+                      ? 'All signers must sign (default)'
+                      : `Any ${uploadThreshold} of ${uploadConnectionIds.length} signers can complete the signing`}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="form-label">Description (optional)</label>
@@ -1558,7 +1673,11 @@ export default function PdfSigningPage() {
                   <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                   </svg>
-                  <span>Document will be encrypted using post-quantum ML-KEM-768 encryption to the recipient's key.</span>
+                  <span>
+                    {uploadConnectionIds.length > 1
+                      ? `Document will be encrypted separately to each recipient using post-quantum ML-KEM-768 encryption.`
+                      : `Document will be encrypted using post-quantum ML-KEM-768 encryption to the recipient's key.`}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1568,7 +1687,8 @@ export default function PdfSigningPage() {
                 onClick={() => {
                   setShowUploadModal(false);
                   setUploadFile(null);
-                  setUploadConnectionId('');
+                  setUploadConnectionIds([]);
+                  setUploadThreshold(0);
                   setUploadDescription('');
                 }}
                 className="btn btn-secondary"
@@ -1577,7 +1697,7 @@ export default function PdfSigningPage() {
               </button>
               <button
                 onClick={handleUploadStep1}
-                disabled={!uploadFile || !uploadConnectionId || !kemStatuses[uploadConnectionId]?.ready || uploading}
+                disabled={!uploadFile || uploadConnectionIds.length === 0 || !uploadConnectionIds.every(id => kemStatuses[id]?.ready) || uploading}
                 className="btn btn-primary"
               >
                 {uploading ? 'Uploading...' : 'Next: Place Fields'}

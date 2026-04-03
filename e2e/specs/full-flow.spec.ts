@@ -83,6 +83,8 @@ test.describe('Full Multi-Tenant PDF Signing E2E', () => {
     await pollUntil(
       tenantB.page,
       async () => {
+        // Expand the collapsible section (may fail if section doesn't exist yet)
+        await pdfSigningB.expandSection('Documents to Sign').catch(() => {});
         const signBtn = tenantB.page
           .locator('.card')
           .filter({ hasText: 'Documents to Sign' })
@@ -110,6 +112,7 @@ test.describe('Full Multi-Tenant PDF Signing E2E', () => {
     await pollUntil(
       tenantB.page,
       async () => {
+        await pdfSigningB.expandSection('Signed - Return to Owner').catch(() => {});
         return tenantB.page
           .getByText('Return to Owner', { exact: true })
           .first()
@@ -131,7 +134,10 @@ test.describe('Full Multi-Tenant PDF Signing E2E', () => {
     await pollUntil(
       tenantA.page,
       async () => {
+        await pdfSigningA.expandSection('Signed Documents').catch(() => {});
         return tenantA.page
+          .locator('.card')
+          .filter({ hasText: 'Signed Documents' })
           .getByText('Verify', { exact: true })
           .first()
           .isVisible()

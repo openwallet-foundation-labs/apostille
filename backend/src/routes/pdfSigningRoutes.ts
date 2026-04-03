@@ -152,48 +152,72 @@ const upload = multer({
 });
 
 /**
- * Upload a PDF and create an encrypted vault for signing
+ * Upload a PDF and create encrypted vaults for signing
  * POST /api/pdf-signing/upload
- * Body: multipart/form-data with 'file' and 'recipientConnectionId'
+ * Body: multipart/form-data with 'file' and either:
+ *   - 'recipientConnectionId' (single recipient, backward compat)
+ *   - 'recipientConnectionIds' (JSON array of connection IDs)
+ *   - 'threshold' (number, how many signatures required; defaults to all)
  *
- * Uses ML-KEM-768 encryption to the recipient's public key.
- * Both parties must have exchanged KEM keys before uploading.
+ * Uses ML-KEM-768 encryption to each recipient's public key.
+ * All parties must have exchanged KEM keys before uploading.
  */
 router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
   try {
     const { tenantId } = (req as any).user;
-    const { recipientConnectionId, description, signingFields: signingFieldsJson } = req.body;
+    const { recipientConnectionId, recipientConnectionIds: recipientIdsJson, description, signingFields: signingFieldsJson, threshold: thresholdStr } = req.body;
     const file = req.file;
 
     if (!file) {
       return res.status(400).json({ error: 'PDF file is required' });
     }
 
-    if (!recipientConnectionId) {
+    // Parse recipient connection IDs — support both single (backward compat) and array
+    let recipientConnectionIds: string[] = [];
+    if (recipientIdsJson) {
+      try {
+        recipientConnectionIds = JSON.parse(recipientIdsJson);
+      } catch {
+        return res.status(400).json({ error: 'Invalid recipientConnectionIds format' });
+      }
+    } else if (recipientConnectionId) {
+      recipientConnectionIds = [recipientConnectionId];
+    }
+
+    if (recipientConnectionIds.length === 0) {
       return res.status(400).json({
-        error: 'recipientConnectionId is required',
+        error: 'At least one recipient is required',
         message: 'Please select a connection to send the PDF to'
+      });
+    }
+
+    // Parse threshold (default = all must sign)
+    const threshold = thresholdStr ? parseInt(thresholdStr, 10) : recipientConnectionIds.length;
+    if (threshold < 1 || threshold > recipientConnectionIds.length) {
+      return res.status(400).json({
+        error: 'Invalid threshold',
+        message: `Threshold must be between 1 and ${recipientConnectionIds.length}`
       });
     }
 
     const agent = await getAgent({ tenantId });
 
-    // Check if the connection exists
-    const connection = await agent.connections.findById(recipientConnectionId);
-    if (!connection) {
-      return res.status(404).json({
-        error: 'Connection not found',
-        message: `Connection ${recipientConnectionId} does not exist`
-      });
-    }
-
-    // Check if we have the recipient's KEM key
-    const hasPeerKey = await agent.modules.vaults.hasPeerKemKey(recipientConnectionId);
-    if (!hasPeerKey) {
-      return res.status(400).json({
-        error: 'Key exchange required',
-        message: 'Please exchange encryption keys with this connection first'
-      });
+    // Validate all connections exist and have KEM keys
+    for (const connId of recipientConnectionIds) {
+      const connection = await agent.connections.findById(connId);
+      if (!connection) {
+        return res.status(404).json({
+          error: 'Connection not found',
+          message: `Connection ${connId} does not exist`
+        });
+      }
+      const hasPeerKey = await agent.modules.vaults.hasPeerKemKey(connId);
+      if (!hasPeerKey) {
+        return res.status(400).json({
+          error: 'Key exchange required',
+          message: `Please exchange encryption keys with connection ${connection.theirLabel || connId} first`
+        });
+      }
     }
 
     const pdfBytes = new Uint8Array(file.buffer);
@@ -208,78 +232,134 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       }
     }
 
-    // Create a signing vault encrypted to the recipient's KEM key
-    const result = await agent.modules.vaults.createSigningVault({
-      document: pdfBytes,
-      signerConnectionId: recipientConnectionId,
-      documentType: 'pdf',
-      metadata: {
-        filename: file.originalname,
-        mimeType: file.mimetype,
-        size: file.size,
-        description: description || 'PDF for signing',
-        role: 'owner',  // This user owns the document
-        signerConnectionId: recipientConnectionId,  // Who should sign it
-        allowSignerCopy: true,
-        createdAt: new Date().toISOString(),
-        ...(signingFields.length > 0 ? { signingFields } : {}),
-      },
-    });
+    // Generate a group ID to link all vaults for multi-recipient signing
+    const signingGroupId = recipientConnectionIds.length > 1 ? crypto.randomUUID() : undefined;
+    const isMultiRecipient = recipientConnectionIds.length > 1;
+    const pdfDigest = crypto.createHash('sha256').update(pdfBytes).digest('base64url');
 
-    console.log(`[PDF-Signing] Created vault ${result.vaultId} for connection ${recipientConnectionId}`);
+    // Create a vault for each recipient
+    const vaultResults: { vaultId: string; docId: string; recipientConnectionId: string; signingSessionId?: string }[] = [];
 
-    // Auto-share the vault with the recipient
-    try {
-      await agent.modules.vaults.shareSigningVault(result.vaultId, recipientConnectionId);
-      console.log(`[PDF-Signing] Auto-shared vault ${result.vaultId} with connection ${recipientConnectionId}`);
-      await sendPdfSigningNotice(agent, recipientConnectionId, {
-        type: 'pdf-signing-shared',
-        vaultId: result.vaultId,
-        at: new Date().toISOString(),
-      });
-    } catch (shareError: any) {
-      console.error(`[PDF-Signing] Failed to auto-share vault ${result.vaultId}:`, shareError.message);
-      // Don't fail the upload if sharing fails - vault is still created
-    }
+    for (let i = 0; i < recipientConnectionIds.length; i++) {
+      const connId = recipientConnectionIds[i];
 
-    // Create a signing session using the DIDComm Signing Protocol
-    // This enables automatic status tracking and notifications
-    let signingSessionId: string | undefined;
-    try {
-      const pdfDigest = crypto.createHash('sha256').update(pdfBytes).digest('base64url');
-
-      const signingSession = await agent.modules.signing.requestSigning(recipientConnectionId, {
-        object: {
-          id: result.vaultId,  // Use vaultId as object.id for linkage
-          mediaType: 'application/pdf',
-          canonicalization: { method: 'raw-bytes@1', parameters: {} },
-          digest: { alg: 'sha-256', value: pdfDigest },
-          displayHints: { title: file.originalname }
+      // Create a signing vault encrypted to this recipient's KEM key
+      const result = await agent.modules.vaults.createSigningVault({
+        document: pdfBytes,
+        signerConnectionId: connId,
+        documentType: 'pdf',
+        metadata: {
+          filename: file.originalname,
+          mimeType: file.mimetype,
+          size: file.size,
+          description: description || 'PDF for signing',
+          role: 'owner',
+          signerConnectionId: connId,
+          allowSignerCopy: true,
+          createdAt: new Date().toISOString(),
+          ...(signingFields.length > 0 ? { signingFields } : {}),
+          // Multi-recipient metadata
+          ...(isMultiRecipient ? {
+            signingGroupId,
+            threshold,
+            totalSigners: recipientConnectionIds.length,
+            signerIndex: i,
+          } : {}),
         },
-        suite: {
-          suite: 'pades-b-lta@1',
-          keyBinding: { controller: 'self', proofPurpose: 'assertionMethod' }
-        }
       });
 
-      signingSessionId = signingSession.id;
-      console.log(`[PDF-Signing] Created signing session ${signingSession.id} for vault ${result.vaultId}`);
-    } catch (signingError: any) {
-      console.error(`[PDF-Signing] Failed to create signing session:`, signingError.message);
-      // Don't fail the upload - vault sharing still works without protocol
-    }
+      console.log(`[PDF-Signing] Created vault ${result.vaultId} for connection ${connId}${signingGroupId ? ` (group ${signingGroupId})` : ''}`);
 
-    res.json({
-      success: true,
-      vault: {
+      // Auto-share the vault with the recipient
+      try {
+        await agent.modules.vaults.shareSigningVault(result.vaultId, connId);
+        console.log(`[PDF-Signing] Auto-shared vault ${result.vaultId} with connection ${connId}`);
+        await sendPdfSigningNotice(agent, connId, {
+          type: 'pdf-signing-shared',
+          vaultId: result.vaultId,
+          ...(signingGroupId ? { signingGroupId } : {}),
+          at: new Date().toISOString(),
+        });
+      } catch (shareError: any) {
+        console.error(`[PDF-Signing] Failed to auto-share vault ${result.vaultId}:`, shareError.message);
+      }
+
+      // Create a signing session using the DIDComm Signing Protocol
+      let signingSessionId: string | undefined;
+      try {
+        const sessionConfig: any = {
+          object: {
+            id: result.vaultId,
+            mediaType: 'application/pdf',
+            canonicalization: { method: 'raw-bytes@1', parameters: {} },
+            digest: { alg: 'sha-256', value: pdfDigest },
+            displayHints: { title: file.originalname }
+          },
+          suite: {
+            suite: 'pades-b-lta@1',
+            keyBinding: { controller: 'self', proofPurpose: 'assertionMethod' }
+          },
+        };
+
+        // Add threshold config for multi-recipient sessions
+        if (isMultiRecipient) {
+          sessionConfig.session = {
+            sessionId: signingGroupId,
+            mode: 'threshold',
+            threshold: {
+              scheme: 'n-of-m',
+              n: threshold,
+              m: recipientConnectionIds.length,
+              signers: [],
+              aggregation: 'none',
+            },
+          };
+        }
+
+        const signingSession = await agent.modules.signing.requestSigning(connId, sessionConfig);
+        signingSessionId = signingSession.id;
+        console.log(`[PDF-Signing] Created signing session ${signingSession.id} for vault ${result.vaultId}`);
+      } catch (signingError: any) {
+        console.error(`[PDF-Signing] Failed to create signing session:`, signingError.message);
+      }
+
+      vaultResults.push({
         vaultId: result.vaultId,
         docId: result.docId,
-        filename: file.originalname,
-        size: file.size,
-        recipientConnectionId,
+        recipientConnectionId: connId,
         signingSessionId,
-      },
-    });
+      });
+    }
+
+    // Response: backward-compatible for single recipient, enhanced for multi
+    if (recipientConnectionIds.length === 1) {
+      const v = vaultResults[0];
+      res.json({
+        success: true,
+        vault: {
+          vaultId: v.vaultId,
+          docId: v.docId,
+          filename: file.originalname,
+          size: file.size,
+          recipientConnectionId: recipientConnectionIds[0],
+          signingSessionId: v.signingSessionId,
+        },
+      });
+    } else {
+      res.json({
+        success: true,
+        signingGroupId,
+        threshold,
+        totalSigners: recipientConnectionIds.length,
+        vaults: vaultResults.map(v => ({
+          vaultId: v.vaultId,
+          docId: v.docId,
+          filename: file.originalname,
+          recipientConnectionId: v.recipientConnectionId,
+          signingSessionId: v.signingSessionId,
+        })),
+      });
+    }
   } catch (error: any) {
     console.error('Error uploading PDF:', error);
     if (error.message?.includes('No ML-KEM key found')) {
@@ -1058,36 +1138,73 @@ router.get('/status', async (req: Request, res: Response) => {
       return !!meta?.ownerAckAt;
     });
 
+    // Build signing progress for multi-recipient groups
+    // Maps signingGroupId → { signed, required, total, signers[] }
+    const groupProgressMap = new Map<string, { signed: number; required: number; total: number; signers: { connectionId: string; isSigned: boolean }[] }>();
+    for (const v of ownedVaults) {
+      const meta = v.header?.metadata;
+      const groupId = meta?.signingGroupId;
+      if (!groupId) continue;
+
+      if (!groupProgressMap.has(groupId)) {
+        groupProgressMap.set(groupId, {
+          signed: 0,
+          required: meta?.threshold || meta?.totalSigners || 1,
+          total: meta?.totalSigners || 1,
+          signers: [],
+        });
+      }
+
+      const progress = groupProgressMap.get(groupId)!;
+      const sessionState = getSessionSigningState(v.vaultId);
+      const vaultSigned = sessionState === 'signed' || meta?.isSigned;
+      if (vaultSigned) progress.signed++;
+      progress.signers.push({
+        connectionId: meta?.signerConnectionId,
+        isSigned: !!vaultSigned,
+      });
+    }
+
     // Helper to map vault to response format with session state
     const mapVault = (v: any, detectedRole?: string) => {
       const session = sessionMap.get(v.vaultId);
       const sessionState = getSessionSigningState(v.vaultId);
+      const meta = v.header?.metadata;
+      const groupId = meta?.signingGroupId;
+      const groupProgress = groupId ? groupProgressMap.get(groupId) : undefined;
+
       return {
         vaultId: v.vaultId,
-        filename: v.header?.metadata?.filename,
-        description: v.header?.metadata?.description,
-        role: v.header?.metadata?.role || detectedRole,
-        status: v.header?.metadata?.status,
-        signerConnectionId: v.header?.metadata?.signerConnectionId,
-        ownerConnectionId: v.header?.metadata?.ownerConnectionId,
-        allowSignerCopy: v.header?.metadata?.allowSignerCopy,
-        isSigned: sessionState === 'signed' || v.header?.metadata?.isSigned,
-        signedAt: v.header?.metadata?.signedAt,
-        sharedAt: v.header?.metadata?.sharedAt,
+        filename: meta?.filename,
+        description: meta?.description,
+        role: meta?.role || detectedRole,
+        status: meta?.status,
+        signerConnectionId: meta?.signerConnectionId,
+        ownerConnectionId: meta?.ownerConnectionId,
+        allowSignerCopy: meta?.allowSignerCopy,
+        isSigned: sessionState === 'signed' || meta?.isSigned,
+        signedAt: meta?.signedAt,
+        sharedAt: meta?.sharedAt,
         returnedAt:
-          v.header?.metadata?.returnedAt ||
-          (v.header?.metadata?.role === 'signer' ? v.header?.metadata?.receivedAt : undefined),
-        downloadedAt: v.header?.metadata?.downloadedAt,
-        verifiedAt: v.header?.metadata?.verifiedAt,
-        verificationValid: v.header?.metadata?.verificationValid,
-        ownerAckAt: v.header?.metadata?.ownerAckAt,
-        ownerAckAction: v.header?.metadata?.ownerAckAction,
-        signerLocalCopy: v.header?.metadata?.signerLocalCopy,
-        createdAt: v.header?.metadata?.createdAt || v.createdAt,
-        signingFields: v.header?.metadata?.signingFields,
+          meta?.returnedAt ||
+          (meta?.role === 'signer' ? meta?.receivedAt : undefined),
+        downloadedAt: meta?.downloadedAt,
+        verifiedAt: meta?.verifiedAt,
+        verificationValid: meta?.verificationValid,
+        ownerAckAt: meta?.ownerAckAt,
+        ownerAckAction: meta?.ownerAckAction,
+        signerLocalCopy: meta?.signerLocalCopy,
+        createdAt: meta?.createdAt || v.createdAt,
+        signingFields: meta?.signingFields,
         // Session info for debugging/UI
         sessionState: session?.state,
         sessionRole: session?.role,
+        // Multi-recipient fields
+        signingGroupId: groupId,
+        threshold: meta?.threshold,
+        totalSigners: meta?.totalSigners,
+        signerIndex: meta?.signerIndex,
+        signingProgress: groupProgress,
       };
     };
 

@@ -17,7 +17,7 @@ export class SignupPage {
 
   async waitForSuccess(): Promise<string> {
     await this.page
-      .getByText('Registration Successful!')
+      .getByRole('heading', { name: 'Registration Successful!' })
       .waitFor({ timeout: 90_000 });
     const tenantId = await this.page
       .locator('.font-mono')
