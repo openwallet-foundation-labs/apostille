@@ -893,21 +893,34 @@ export const vaultApi = {
  */
 export const pdfSigningApi = {
   /**
-   * Upload a PDF and create an encrypted vault
-   * Requires a connection with KEM keys exchanged
+   * Upload a PDF and create encrypted vault(s) for signing
+   * Supports single recipient (backward compat) or multiple recipients with threshold
    * @param file - PDF file to upload
-   * @param recipientConnectionId - Connection ID of recipient (must have KEM keys)
+   * @param recipientConnectionIds - Connection ID(s) of recipient(s) (must have KEM keys)
    * @param description - Optional description
+   * @param signingFields - Optional signing field placements
+   * @param threshold - Number of required signatures (defaults to all)
    */
-  upload: async (file: File, recipientConnectionId: string, description?: string, signingFields?: any[]) => {
+  upload: async (file: File, recipientConnectionIds: string | string[], description?: string, signingFields?: any[], threshold?: number) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('recipientConnectionId', recipientConnectionId);
+
+    // Support both single string (backward compat) and array
+    const ids = Array.isArray(recipientConnectionIds) ? recipientConnectionIds : [recipientConnectionIds];
+    if (ids.length === 1) {
+      formData.append('recipientConnectionId', ids[0]);
+    } else {
+      formData.append('recipientConnectionIds', JSON.stringify(ids));
+    }
+
     if (description) {
       formData.append('description', description);
     }
     if (signingFields && signingFields.length > 0) {
       formData.append('signingFields', JSON.stringify(signingFields));
+    }
+    if (threshold && ids.length > 1) {
+      formData.append('threshold', String(threshold));
     }
 
     const token = getAccessToken();

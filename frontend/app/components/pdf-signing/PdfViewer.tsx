@@ -33,6 +33,11 @@ interface PdfViewerProps {
   onTotalPagesChange?: (total: number) => void
   onDrop?: (e: React.DragEvent<HTMLDivElement>, page: number, dims: PageDimensions) => void
   showControls?: boolean
+  searchQuery?: string
+  searchActiveIndex?: number
+  onSearchResults?: (total: number) => void
+  onPageClick?: (page: number, x: number, y: number, dims: PageDimensions, clientX: number, clientY: number) => void
+  enableScrollPaging?: boolean
 }
 
 export default function PdfViewer({
@@ -46,15 +51,24 @@ export default function PdfViewer({
   onTotalPagesChange,
   onDrop,
   showControls = true,
+  searchQuery,
+  searchActiveIndex,
+  onSearchResults,
+  onPageClick,
+  enableScrollPaging = false,
 }: PdfViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const lastWheelAtRef = useRef(0)
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null)
   const [totalPages, setTotalPages] = useState(0)
   const [page, setPage] = useState(currentPage)
   const [internalScale, setInternalScale] = useState(1.0)
   const [pageDimensions, setPageDimensions] = useState<PageDimensions>({ width: 0, height: 0 })
   const [loading, setLoading] = useState(true)
+  const [highlights, setHighlights] = useState<Array<{ left: number; top: number; width: number; height: number }>>([])
+  const [allMatches, setAllMatches] = useState<Array<{ page: number; left: number; top: number; width: number; height: number }>>([])
+  const renderTaskRef = useRef<any>(null)
 
   const scale = externalScale ?? internalScale
 
@@ -120,24 +134,120 @@ export default function PdfViewer({
       canvas.height = viewport.height * dpr
       canvas.style.width = `${viewport.width}px`
       canvas.style.height = `${viewport.height}px`
-      ctx.scale(dpr, dpr)
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
       if (!cancelled) {
         setPageDimensions({ width: viewport.width, height: viewport.height })
       }
 
-      await pdfPage.render({
+      renderTaskRef.current?.cancel?.()
+      const renderTask = pdfPage.render({
         canvasContext: ctx,
         viewport,
         canvas: canvasRef.current!,
-      }).promise
+      })
+      renderTaskRef.current = renderTask
+      await renderTask.promise
+
+      if (!cancelled) {
+        const pageRects = allMatches.filter((m) => m.page === page)
+        setHighlights(pageRects)
+      }
     }
 
     renderPage()
     return () => {
       cancelled = true
+      renderTaskRef.current?.cancel?.()
     }
-  }, [pdfDoc, page, scale])
+  }, [pdfDoc, page, scale, allMatches])
+
+  // Build search matches across document
+  useEffect(() => {
+    if (!pdfDoc || !searchQuery || searchQuery.trim().length === 0) {
+      setAllMatches([])
+      onSearchResults?.(0)
+      return
+    }
+    let cancelled = false
+    const run = async () => {
+      const pdfjs = await getPdfjs()
+      const query = searchQuery.trim().toLowerCase()
+      const matches: Array<{ page: number; left: number; top: number; width: number; height: number }> = []
+      for (let i = 0; i < pdfDoc.numPages; i += 1) {
+        const pdfPage = await pdfDoc.getPage(i + 1)
+        const viewport = pdfPage.getViewport({ scale })
+        const textContent = await pdfPage.getTextContent()
+        textContent.items.forEach((item: any) => {
+          const raw = String(item.str || '')
+          if (!raw) return
+          const str = raw.toLowerCase()
+          let idx = str.indexOf(query)
+          if (idx === -1) return
+          const transform = pdfjs.Util.transform(viewport.transform, item.transform)
+          const x = transform[4]
+          const y = transform[5]
+          const height = Math.hypot(transform[1], transform[3])
+          const width = item.width * scale
+          const charWidth = raw.length > 0 ? width / raw.length : width
+          while (idx !== -1) {
+            const left = x + idx * charWidth
+            const rectWidth = charWidth * query.length
+            matches.push({ page: i, left, top: y - height, width: rectWidth, height })
+            idx = str.indexOf(query, idx + query.length)
+          }
+        })
+      }
+      if (!cancelled) {
+        setAllMatches(matches)
+        onSearchResults?.(matches.length)
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [pdfDoc, searchQuery, scale, onSearchResults])
+
+  // Jump to active match
+  useEffect(() => {
+    if (!pdfDoc || allMatches.length === 0 || searchActiveIndex === undefined) return
+    const idx = Math.max(0, Math.min(searchActiveIndex, allMatches.length - 1))
+    const target = allMatches[idx]
+    if (target && target.page !== page) {
+      setPage(target.page)
+      onPageChange?.(target.page)
+    }
+  }, [pdfDoc, allMatches, searchActiveIndex, page, onPageChange])
+
+  // Jump to first match on search
+  useEffect(() => {
+    if (!pdfDoc || !searchQuery || searchQuery.trim().length === 0) return
+    let cancelled = false
+    const run = async () => {
+      const query = searchQuery.trim().toLowerCase()
+      for (let i = 0; i < pdfDoc.numPages; i += 1) {
+        const pdfPage = await pdfDoc.getPage(i + 1)
+        const textContent = await pdfPage.getTextContent()
+        const found = textContent.items.some((item: any) =>
+          String(item.str || '').toLowerCase().includes(query)
+        )
+        if (found) {
+          if (!cancelled) {
+            setPage(i)
+            onPageChange?.(i)
+          }
+          break
+        }
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [pdfDoc, searchQuery, onPageChange])
 
   const goToPage = useCallback(
     (p: number) => {
@@ -166,6 +276,37 @@ export default function PdfViewer({
       onDrop?.(e, page, pageDimensions)
     },
     [onDrop, page, pageDimensions]
+  )
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return
+      if (!onPageClick || !canvasRef.current) return
+      const rect = canvasRef.current.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+      if (x < 0 || y < 0 || x > rect.width || y > rect.height) return
+      onPageClick(page, x, y, pageDimensions, e.clientX, e.clientY)
+      e.stopPropagation()
+    },
+    [onPageClick, page, pageDimensions]
+  )
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      if (!enableScrollPaging) return
+      const now = Date.now()
+      if (now - lastWheelAtRef.current < 150) return
+      if (Math.abs(e.deltaY) < 20) return
+      e.preventDefault()
+      lastWheelAtRef.current = now
+      if (e.deltaY > 0) {
+        goToPage(page + 1)
+      } else {
+        goToPage(page - 1)
+      }
+    },
+    [enableScrollPaging, page, goToPage]
   )
 
   if (loading) {
@@ -227,8 +368,29 @@ export default function PdfViewer({
         className="relative inline-block shadow-lg"
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
+        onClick={handleClick}
+        onWheel={handleWheel}
       >
         <canvas ref={canvasRef} className="block" />
+        {highlights.length > 0 && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ width: pageDimensions.width, height: pageDimensions.height }}
+          >
+            {highlights.map((r, idx) => {
+              const globalIndex = allMatches.findIndex(
+                (m) => m.page === page && m.left === r.left && m.top === r.top && m.width === r.width && m.height === r.height
+              )
+              const isActive = searchActiveIndex !== undefined && globalIndex === searchActiveIndex
+              return (
+              <div
+                key={`${r.left}-${r.top}-${idx}`}
+                className={`absolute rounded-sm ${isActive ? 'bg-yellow-400/70' : 'bg-yellow-300/40'}`}
+                style={{ left: r.left, top: r.top, width: r.width, height: r.height }}
+              />
+            )})}
+          </div>
+        )}
         {/* Overlay content (fields, etc.) */}
         {overlayContent && pageDimensions.width > 0 && (
           <div

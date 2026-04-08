@@ -9,6 +9,13 @@ import SigningGuidedView from '../../components/pdf-signing/SigningGuidedView';
 import type { SigningField } from '../../components/pdf-signing/types';
 import { useNotifications } from '../../context/NotificationContext';
 
+interface SigningProgress {
+  signed: number;
+  required: number;
+  total: number;
+  signers?: { connectionId: string; isSigned: boolean }[];
+}
+
 interface PdfVault {
   vaultId: string;
   filename?: string;
@@ -30,6 +37,12 @@ interface PdfVault {
   signerLocalCopy?: boolean;
   createdAt?: string;
   signingFields?: SigningField[];
+  // Multi-recipient fields
+  signingGroupId?: string;
+  threshold?: number;
+  totalSigners?: number;
+  signerIndex?: number;
+  signingProgress?: SigningProgress;
 }
 
 interface Connection {
@@ -76,12 +89,17 @@ export default function PdfSigningPage() {
   // Upload modal state
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadConnectionId, setUploadConnectionId] = useState('');
+  const [uploadConnectionIds, setUploadConnectionIds] = useState<string[]>([]);
+  const [uploadThreshold, setUploadThreshold] = useState<number>(0); // 0 = all must sign
   const [uploadDescription, setUploadDescription] = useState('');
   const [uploading, setUploading] = useState(false);
 
   // KEM status tracking
   const [kemStatuses, setKemStatuses] = useState<Record<string, KemStatus>>({});
+  useEffect(() => {
+    if (!showUploadModal) return;
+    setUploadConnectionIds((prev) => prev.filter((id) => kemStatuses[id]?.ready));
+  }, [showUploadModal, kemStatuses]);
 
   // Sign modal state
   const [showSignModal, setShowSignModal] = useState(false);
@@ -310,8 +328,8 @@ export default function PdfSigningPage() {
 
   // Step 1 of upload: validate inputs, read file, show field editor
   const handleUploadStep1 = async () => {
-    if (!uploadFile || !uploadConnectionId) {
-      toast.error('Please select a PDF and a recipient connection');
+    if (!uploadFile || uploadConnectionIds.length === 0) {
+      toast.error('Please select a PDF and at least one recipient');
       return;
     }
 
@@ -320,9 +338,20 @@ export default function PdfSigningPage() {
       return;
     }
 
-    const kemStatus = kemStatuses[uploadConnectionId];
-    if (!kemStatus?.ready) {
-      toast.error('Please select a connection with encryption keys ready');
+    // Validate all selected connections have KEM keys ready
+    for (const connId of uploadConnectionIds) {
+      const kemStatus = kemStatuses[connId];
+      if (!kemStatus?.ready) {
+        const conn = connections.find(c => c.id === connId);
+        toast.error(`Encryption keys not ready for ${conn?.theirLabel || connId}`);
+        return;
+      }
+    }
+
+    // Validate threshold
+    const effectiveThreshold = uploadThreshold || uploadConnectionIds.length;
+    if (effectiveThreshold < 1 || effectiveThreshold > uploadConnectionIds.length) {
+      toast.error(`Required signatures must be between 1 and ${uploadConnectionIds.length}`);
       return;
     }
 
@@ -335,17 +364,28 @@ export default function PdfSigningPage() {
 
   // Step 2 of upload: after field placement, upload the PDF with fields
   const handleUploadWithFields = async (fields: SigningField[]) => {
-    if (!uploadFile || !uploadConnectionId) return;
+    if (!uploadFile || uploadConnectionIds.length === 0) return;
 
     setShowFieldEditor(false);
     setFieldEditorPdfData(null);
     setUploading(true);
     try {
-      const response = await pdfSigningApi.upload(uploadFile, uploadConnectionId, uploadDescription, fields);
+      const effectiveThreshold = uploadThreshold || uploadConnectionIds.length;
+      const response = await pdfSigningApi.upload(
+        uploadFile,
+        uploadConnectionIds,
+        uploadDescription,
+        fields,
+        uploadConnectionIds.length > 1 ? effectiveThreshold : undefined
+      );
       if (response.success) {
-        toast.success('PDF uploaded and encrypted successfully!');
+        const msg = uploadConnectionIds.length > 1
+          ? `PDF uploaded and sent to ${uploadConnectionIds.length} recipients!`
+          : 'PDF uploaded and encrypted successfully!';
+        toast.success(msg);
         setUploadFile(null);
-        setUploadConnectionId('');
+        setUploadConnectionIds([]);
+        setUploadThreshold(0);
         setUploadDescription('');
         loadData();
       }
@@ -745,6 +785,7 @@ export default function PdfSigningPage() {
   const actionSectionRef = useRef<HTMLDivElement | null>(null);
   const signedSectionRef = useRef<HTMLDivElement | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [expandedSignedVaultId, setExpandedSignedVaultId] = useState<string | null>(null);
 
   useEffect(() => {
     if (Object.keys(openSections).length > 0) return;
@@ -771,16 +812,14 @@ export default function PdfSigningPage() {
   };
 
   const renderSectionHeader = (opts: {
-    keyId: string;
+    keyId?: string;
     title: string;
     badge?: { label: string; className: string };
     count: number;
-  }) => (
-    <button
-      type="button"
-      onClick={() => toggleSection(opts.keyId)}
-      className="w-full px-6 py-4 border-b border-border-primary flex items-center justify-between text-left"
-    >
+    collapsible?: boolean;
+  }) => {
+    const isCollapsible = Boolean(opts.collapsible && opts.keyId);
+    const content = (
       <div className="flex items-center gap-2">
         {opts.badge && (
           <span className={`px-2 py-0.5 text-xs font-medium rounded ${opts.badge.className}`}>
@@ -792,18 +831,46 @@ export default function PdfSigningPage() {
           {opts.count}
         </span>
       </div>
-    
-        
-      <svg
-        className={`h-4 w-4 text-text-tertiary transition-transform ${openSections[opts.keyId] ? 'rotate-180' : ''}`}
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
+    );
+
+    if (!isCollapsible) {
+      return (
+        <div className="w-full px-6 py-4 border-b border-border-primary flex items-center justify-between text-left">
+          {content}
+        </div>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSection(opts.keyId!)}
+        className="w-full px-6 py-4 border-b border-border-primary flex items-center justify-between text-left"
       >
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-      </svg>
-    </button>
-  );
+        {content}
+        <svg
+          className={`h-4 w-4 text-text-tertiary transition-transform ${openSections[opts.keyId!] ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+    );
+  };
+
+  const getConnectionLabel = (id?: string) => {
+    if (!id) return 'Unknown';
+    const match = connections.find((c) => c.id === id);
+    return match?.theirLabel || id;
+  };
+
+  const formatDateTime = (value?: string) => {
+    if (!value) return 'Unknown';
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? 'Unknown' : d.toLocaleString();
+  };
 
   if (loading) {
     return (
@@ -815,87 +882,14 @@ export default function PdfSigningPage() {
 
   const actionRequiredCount = (status?.pendingToShare || 0) + (status?.toSign || 0) + (status?.signedToReturn || 0);
   const waitingCount = (status?.awaitingSignature || 0) + (status?.signed || 0);
-  const newestToSign = [...toSignVaults]
-    .sort((a, b) => {
-      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return bTime - aTime;
-    })[0];
-
+  const shareableConnections = connections.filter((c) => kemStatuses[c.id]?.ready);
   return (
     <div className="space-y-8">
-      {/* Top Tabs */}
-      <div className="flex items-center justify-between w-full">
-        {/* LEFT: Tabs */}
-        <div className="inline-flex bg-surface-100 dark:bg-surface-800 rounded-xl p-1">
-          {[
-            { id: 'pdf', label: 'PDF' },
-            { id: 'tasks', label: 'Tasks' },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveSection(tab.id as typeof activeSection)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                activeSection === tab.id
-                  ? 'bg-white dark:bg-surface-700 text-text-primary shadow-sm'
-                  : 'text-text-tertiary hover:text-text-primary'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* RIGHT: Buttons */}
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setShowUploadModal(true)}
-            className="btn btn-primary"
-          >
-            Upload PDF
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveSection('tasks');
-              setActiveTab('action');
-              setOpenSections((prev) => ({ ...prev, toSign: true }));
-              setTimeout(() => actionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-            }}
-            className="btn btn-secondary"
-          >
-            Sign Documents
-          </button>
-        </div>
-      </div>
-
+     
       {/* PDF Section */}
       {activeSection === 'pdf' && (
         <div className="space-y-8">
-          {/* <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-           
-             
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setShowUploadModal(true)}
-                className="btn btn-primary"
-              >
-                Get Signatures
-              </button>
-              <button
-                onClick={() => {
-                  setActiveSection('tasks');
-                  setActiveTab('action');
-                  setOpenSections((prev) => ({ ...prev, toSign: true }));
-                  setTimeout(() => actionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-                }}
-                className="btn btn-secondary"
-              >
-                Sign a Document
-              </button>
-            </div>
-          </div> */}
+          
 
           <div className="space-y-4">
             <div className="card border border-border-secondary">
@@ -972,24 +966,28 @@ export default function PdfSigningPage() {
                       </svg>
                     </button>
                   </div>
-                  {newestToSign ? (
-                    <div className="border border-border-secondary rounded-lg p-4 flex items-start gap-3">
-                      <svg className="h-6 w-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-text-tertiary">Needs to Sign</p>
-                        <p className="text-sm font-medium text-text-primary truncate">{newestToSign.filename || 'Unnamed PDF'}</p>
-                        <p className="text-xs text-text-tertiary truncate">
-                          Received: {newestToSign.createdAt ? new Date(newestToSign.createdAt).toLocaleDateString() : 'Unknown'}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => handleInitiateSign(newestToSign)}
-                        className="btn btn-sm btn-primary"
-                      >
-                        Sign
-                      </button>
+                  {toSignVaults.length > 0 ? (
+                    <div className="border border-border-secondary rounded-lg divide-y divide-border-secondary">
+                      {toSignVaults.map((vault) => (
+                        <div key={vault.vaultId} className="p-4 flex items-start gap-3">
+                          <svg className="h-6 w-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-text-tertiary">Needs to Sign</p>
+                            <p className="text-sm font-medium text-text-primary truncate">{vault.filename || 'Unnamed PDF'}</p>
+                            <p className="text-xs text-text-tertiary truncate">
+                              Received: {vault.createdAt ? new Date(vault.createdAt).toLocaleDateString() : 'Unknown'}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleInitiateSign(vault)}
+                            className="btn btn-sm btn-primary"
+                          >
+                            Sign
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <div className="border border-border-secondary rounded-lg p-4 text-sm text-text-tertiary">
@@ -1080,11 +1078,11 @@ export default function PdfSigningPage() {
       {activeSection === 'tasks' && (
         <div className="space-y-8">
           {/* Summary */}
-          {status && (
+          {/* {status && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="card border border-border-secondary">
                 <div className="px-5 py-4">
-                  <p className="text-xs font-semibold tracking-wide text-text-tertiary uppercase">Action required</p>
+                  <p className="text-xs font-semibold tracking-wide text-text-tertiary uppercase">Action requiredsss</p>
                   <p className="mt-2 text-2xl font-semibold text-text-primary">{actionRequiredCount}</p>
                 </div>
               </div>
@@ -1101,10 +1099,10 @@ export default function PdfSigningPage() {
                 </div>
               </div>
             </div>
-          )}
+          )} */}
 
           {/* Tabs */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-2">
             <div className="inline-flex bg-surface-100 dark:bg-surface-800 rounded-xl p-1">
               {[
                 { id: 'all', label: 'All' },
@@ -1126,6 +1124,16 @@ export default function PdfSigningPage() {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSection('pdf');
+                setShowUploadModal(true);
+              }}
+              className="btn btn-primary"
+            >
+              Upload PDF
+            </button>
           </div>
 
           {/* Sections */}
@@ -1133,13 +1141,14 @@ export default function PdfSigningPage() {
         {/* Action Required */}
         {(activeTab === 'action' || activeTab === 'all') && (
           <>
-            {(pendingToShareVaults.length > 0 || activeTab === 'all') && (
+            {activeTab === 'all' && (pendingToShareVaults.length > 0 || activeTab === 'all') && (
               <div className="card">
                 {renderSectionHeader({
                   keyId: 'toShare',
                   title: 'Documents to Share',
                   badge: { label: 'Owner', className: 'bg-warning-100 text-warning-700 dark:bg-warning-900/30 dark:text-warning-400' },
                   count: pendingToShareVaults.length,
+                  collapsible: true,
                 })}
                 {openSections.toShare && (
                   pendingToShareVaults.length === 0 ? (
@@ -1198,9 +1207,55 @@ export default function PdfSigningPage() {
                     title: 'Documents to Sign',
                     badge: { label: 'Signer', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
                     count: toSignVaults.length,
+                    collapsible: activeTab === 'all',
                   })}
                 </div>
-                {openSections.toSign && (
+                {activeTab === 'all' ? (
+                  openSections.toSign && (
+                    toSignVaults.length === 0 ? (
+                      <div className="px-6 py-8 text-center text-text-secondary">No documents received for signing</div>
+                    ) : (
+                      <div className="divide-y divide-border-secondary">
+                        {toSignVaults.map((vault) => (
+                          <div key={vault.vaultId} className="px-6 py-4 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <svg className="h-8 w-8 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                              <div>
+                                <div className="font-medium text-text-primary">{vault.filename || 'Unnamed PDF'}</div>
+                                <div className="text-xs text-text-tertiary">
+                                  {vault.description && <span>{vault.description} • </span>}
+                                  Received: {vault.createdAt ? new Date(vault.createdAt).toLocaleDateString() : 'Unknown'}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleInitiateSign(vault)}
+                                disabled={signing}
+                                className="btn btn-sm btn-primary"
+                              >
+                                {signing && selectedVault?.vaultId === vault.vaultId ? 'Loading...' : 'Sign'}
+                              </button>
+                              {canSignerDownload(vault) && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedVault(vault);
+                                    setShowDownloadModal(true);
+                                  }}
+                                  className="btn btn-sm btn-secondary"
+                                >
+                                  Download
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )
+                ) : (
                   toSignVaults.length === 0 ? (
                     <div className="px-6 py-8 text-center text-text-secondary">No documents received for signing</div>
                   ) : (
@@ -1247,13 +1302,14 @@ export default function PdfSigningPage() {
               </div>
             )}
 
-            {(signedToReturnVaults.length > 0 || activeTab === 'all') && (
+            {activeTab === 'all' && (signedToReturnVaults.length > 0 || activeTab === 'all') && (
               <div className="card">
                 {renderSectionHeader({
                   keyId: 'toReturn',
                   title: 'Signed - Return to Owner',
                   badge: { label: 'Signer', className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
                   count: signedToReturnVaults.length,
+                  collapsible: true,
                 })}
                 {openSections.toReturn && (
                   signedToReturnVaults.length === 0 ? (
@@ -1315,8 +1371,76 @@ export default function PdfSigningPage() {
                   title: 'Awaiting Signature',
                   badge: { label: 'Owner', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
                   count: awaitingSignatureVaults.length,
+                  collapsible: activeTab === 'all',
                 })}
-                {openSections.awaiting && (
+                {activeTab === 'all' ? (
+                  openSections.awaiting && (
+                    awaitingSignatureVaults.length === 0 ? (
+                      <div className="px-6 py-8 text-center text-text-secondary">No documents awaiting signature from others</div>
+                    ) : (
+                      <div className="divide-y divide-border-secondary">
+                        {awaitingSignatureVaults.map((vault) => (
+                          <div key={vault.vaultId} className="px-6 py-4 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <svg className="h-8 w-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <div>
+                                <div className="font-medium text-text-primary">{vault.filename || 'Unnamed PDF'}</div>
+                                <div className="text-xs text-text-tertiary">
+                                  {vault.description && <span>{vault.description} • </span>}
+                                  Shared: {vault.sharedAt ? new Date(vault.sharedAt).toLocaleDateString() : 'Unknown'}
+                                </div>
+                                {/* Multi-recipient signing progress */}
+                                {vault.signingProgress && vault.signingProgress.total > 1 && (
+                                  <div className="mt-1">
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full max-w-[120px]">
+                                        <div
+                                          className="h-1.5 bg-blue-500 rounded-full transition-all"
+                                          style={{ width: `${Math.min(100, (vault.signingProgress.signed / vault.signingProgress.required) * 100)}%` }}
+                                        />
+                                      </div>
+                                      <span className="text-xs text-text-secondary">
+                                        {vault.signingProgress.signed}/{vault.signingProgress.required} signed
+                                        {vault.signingProgress.total !== vault.signingProgress.required &&
+                                          ` (${vault.signingProgress.total} total)`}
+                                      </span>
+                                    </div>
+                                    {vault.signingProgress.signers && (
+                                      <div className="flex gap-1 mt-1">
+                                        {vault.signingProgress.signers.map((s, idx) => (
+                                          <span
+                                            key={idx}
+                                            className={`inline-block w-2 h-2 rounded-full ${
+                                              s.isSigned ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+                                            }`}
+                                            title={`Signer ${idx + 1}: ${s.isSigned ? 'Signed' : 'Pending'}`}
+                                          />
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  setSelectedVault(vault);
+                                  setShowDownloadModal(true);
+                                }}
+                                className="btn btn-sm btn-secondary"
+                              >
+                                Download
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )
+                ) : (
                   awaitingSignatureVaults.length === 0 ? (
                     <div className="px-6 py-8 text-center text-text-secondary">No documents awaiting signature from others</div>
                   ) : (
@@ -1333,6 +1457,37 @@ export default function PdfSigningPage() {
                                 {vault.description && <span>{vault.description} • </span>}
                                 Shared: {vault.sharedAt ? new Date(vault.sharedAt).toLocaleDateString() : 'Unknown'}
                               </div>
+                              {/* Multi-recipient signing progress */}
+                              {vault.signingProgress && vault.signingProgress.total > 1 && (
+                                <div className="mt-1">
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full max-w-[120px]">
+                                      <div
+                                        className="h-1.5 bg-blue-500 rounded-full transition-all"
+                                        style={{ width: `${Math.min(100, (vault.signingProgress.signed / vault.signingProgress.required) * 100)}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-xs text-text-secondary">
+                                      {vault.signingProgress.signed}/{vault.signingProgress.required} signed
+                                      {vault.signingProgress.total !== vault.signingProgress.required &&
+                                        ` (${vault.signingProgress.total} total)`}
+                                    </span>
+                                  </div>
+                                  {vault.signingProgress.signers && (
+                                    <div className="flex gap-1 mt-1">
+                                      {vault.signingProgress.signers.map((s, idx) => (
+                                        <span
+                                          key={idx}
+                                          className={`inline-block w-2 h-2 rounded-full ${
+                                            s.isSigned ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+                                          }`}
+                                          title={`Signer ${idx + 1}: ${s.isSigned ? 'Signed' : 'Pending'}`}
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="flex gap-2">
@@ -1354,7 +1509,7 @@ export default function PdfSigningPage() {
               </div>
             )}
 
-            {(signedVaults.length > 0 || activeTab === 'all') && (
+            {activeTab === 'all' && (signedVaults.length > 0 || activeTab === 'all') && (
               <div className="card">
                 <div ref={signedSectionRef}>
                   {renderSectionHeader({
@@ -1362,6 +1517,7 @@ export default function PdfSigningPage() {
                     title: 'Signed Documents',
                     badge: { label: 'Owner', className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
                     count: signedVaults.length,
+                    collapsible: true,
                   })}
                 </div>
                 {openSections.signedOwner && (
@@ -1370,43 +1526,91 @@ export default function PdfSigningPage() {
                   ) : (
                     <div className="divide-y divide-border-secondary">
                       {signedVaults.map((vault) => (
-                        <div key={vault.vaultId} className="px-6 py-4 flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <svg className="h-8 w-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <div>
-                              <div className="font-medium text-text-primary">{vault.filename || 'Unnamed PDF'}</div>
-                              <div className="text-xs text-text-tertiary">
-                                {vault.description && <span>{vault.description} • </span>}
-                                Signed: {vault.signedAt ? new Date(vault.signedAt).toLocaleDateString() : 'Recently'}
+                        <div key={vault.vaultId}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedSignedVaultId((prev) => (prev === vault.vaultId ? null : vault.vaultId))
+                            }
+                            className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-surface-50 dark:hover:bg-surface-800/60"
+                          >
+                            <div className="flex items-center gap-3">
+                              <svg className="h-8 w-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <div>
+                                <div className="font-medium text-text-primary">{vault.filename || 'Unnamed PDF'}</div>
+                                <div className="text-xs text-text-tertiary">
+                                  {vault.description && <span>{vault.description} • </span>}
+                                  Signed: {vault.signedAt ? new Date(vault.signedAt).toLocaleDateString() : 'Recently'}
+                                </div>
+                              </div>
+                              {vault.signingProgress && vault.signingProgress.total > 1 && (
+                                <div className="text-xs text-green-600 dark:text-green-400 mt-0.5">
+                                  {vault.signingProgress.signed}/{vault.signingProgress.required} signatures collected
+                                  {vault.signingProgress.signed >= vault.signingProgress.required && ' — Threshold met'}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-1 text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded">
+                                Signature Confirmed
+                              </span>
+                              <svg
+                                className={`h-4 w-4 text-text-tertiary transition-transform ${
+                                  expandedSignedVaultId === vault.vaultId ? 'rotate-180' : ''
+                                }`}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
+                          </button>
+                          {expandedSignedVaultId === vault.vaultId && (
+                            <div className="px-6 pb-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-surface-50 dark:bg-surface-800/60 border border-border-secondary rounded-lg p-4">
+                                <div className="text-sm">
+                                  <div className="text-text-tertiary">Signer</div>
+                                  <div className="text-text-primary font-medium">
+                                    {getConnectionLabel(vault.signerConnectionId)}
+                                  </div>
+                                </div>
+                                <div className="text-sm">
+                                  <div className="text-text-tertiary">Signed Time</div>
+                                  <div className="text-text-primary font-medium">{formatDateTime(vault.signedAt)}</div>
+                                </div>
+                                <div className="text-sm">
+                                  <div className="text-text-tertiary">Copy Received</div>
+                                  <div className="text-text-primary font-medium">
+                                    {formatDateTime(vault.returnedAt || vault.ownerAckAt)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex gap-2 mt-3">
+                                <button
+                                  onClick={() => {
+                                    setSelectedVault(vault);
+                                    setVerificationResult(null);
+                                    setShowVerifyModal(true);
+                                  }}
+                                  className="btn btn-sm btn-secondary"
+                                >
+                                  Verify
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedVault(vault);
+                                    setShowDownloadModal(true);
+                                  }}
+                                  className="btn btn-sm btn-secondary"
+                                >
+                                  Download
+                                </button>
                               </div>
                             </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <span className="px-2 py-1 text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded">
-                              Signature Confirmed
-                            </span>
-                            <button
-                              onClick={() => {
-                                setSelectedVault(vault);
-                                setVerificationResult(null);
-                                setShowVerifyModal(true);
-                              }}
-                              className="btn btn-sm btn-secondary"
-                            >
-                              Verify
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedVault(vault);
-                                setShowDownloadModal(true);
-                              }}
-                              className="btn btn-sm btn-secondary"
-                            >
-                              Download
-                            </button>
-                          </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1416,7 +1620,6 @@ export default function PdfSigningPage() {
             )}
           </>
         )}
-
         {/* Completed */}
         {(activeTab === 'completed' || activeTab === 'all') && (
           <>
@@ -1426,6 +1629,7 @@ export default function PdfSigningPage() {
                   keyId: 'completed',
                   title: 'Completed',
                   count: completedVaults.length,
+                  collapsible: true,
                 })}
                 {openSections.completed && (
                   completedVaults.length === 0 ? (
@@ -1507,40 +1711,77 @@ export default function PdfSigningPage() {
               </div>
 
               <div>
-                <label className="form-label">Send to (encrypted)</label>
-                <select
-                  value={uploadConnectionId}
-                  onChange={(e) => setUploadConnectionId(e.target.value)}
-                  className="input w-full"
-                >
-                  <option value="">-- Select a recipient --</option>
-                  {connections.map((conn) => {
-                    const kemStatus = kemStatuses[conn.id];
-                    const isReady = kemStatus?.ready;
+                <label className="form-label">Send to (encrypted) — select one or more</label>
+                <div className="border border-border-primary rounded-md max-h-48 overflow-y-auto">
+                  {connections.length === 0 && (
+                    <p className="px-3 py-4 text-sm text-warning-600">
+                      No active connections found. Create a connection first.
+                    </p>
+                  )}
+                  {connections.length > 0 && shareableConnections.length === 0 && (
+                    <p className="px-3 py-4 text-sm text-warning-600">
+                      No connections with encryption keys ready. Exchange keys first.
+                    </p>
+                  )}
+                  {shareableConnections.map((conn) => {
+                    const isSelected = uploadConnectionIds.includes(conn.id);
                     return (
-                      <option
+                      <label
                         key={conn.id}
-                        value={conn.id}
-                        disabled={!isReady}
+                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-bg-secondary transition-colors ${
+                          isSelected ? 'bg-primary-50 dark:bg-primary-900/20' : ''
+                        }`}
                       >
-                        {isReady ? '🔒 ' : '⚠️ '}
-                        {conn.theirLabel || conn.id}
-                        {!isReady && ' (keys not exchanged)'}
-                      </option>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setUploadConnectionIds(prev => [...prev, conn.id]);
+                            } else {
+                              setUploadConnectionIds(prev => prev.filter(id => id !== conn.id));
+                            }
+                          }}
+                          className="rounded border-border-primary"
+                        />
+                        <span className="text-sm">
+                          {conn.theirLabel || conn.id}
+                        </span>
+                      </label>
                     );
                   })}
-                </select>
-                {connections.length > 0 && !connections.some(c => kemStatuses[c.id]?.ready) && (
-                  <p className="mt-2 text-sm text-warning-600">
-                    No connections have encryption keys ready. Go to Connections page to exchange keys first.
-                  </p>
-                )}
-                {connections.length === 0 && (
-                  <p className="mt-2 text-sm text-warning-600">
-                    No active connections found. Create a connection first.
+                </div>
+                {uploadConnectionIds.length > 0 && (
+                  <p className="mt-1 text-xs text-text-secondary">
+                    {uploadConnectionIds.length} recipient{uploadConnectionIds.length > 1 ? 's' : ''} selected
                   </p>
                 )}
               </div>
+
+              {/* Threshold input — only show when multiple recipients selected */}
+              {uploadConnectionIds.length > 1 && (
+                <div>
+                  <label className="form-label">Required signatures</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={uploadConnectionIds.length}
+                      value={uploadThreshold || uploadConnectionIds.length}
+                      onChange={(e) => setUploadThreshold(parseInt(e.target.value, 10) || 0)}
+                      className="input w-20 text-center"
+                    />
+                    <span className="text-sm text-text-secondary">
+                      of {uploadConnectionIds.length} signers must sign
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-text-secondary">
+                    {(uploadThreshold || uploadConnectionIds.length) === uploadConnectionIds.length
+                      ? 'All signers must sign (default)'
+                      : `Any ${uploadThreshold} of ${uploadConnectionIds.length} signers can complete the signing`}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="form-label">Description (optional)</label>
@@ -1558,7 +1799,11 @@ export default function PdfSigningPage() {
                   <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                   </svg>
-                  <span>Document will be encrypted using post-quantum ML-KEM-768 encryption to the recipient's key.</span>
+                  <span>
+                    {uploadConnectionIds.length > 1
+                      ? `Document will be encrypted separately to each recipient using post-quantum ML-KEM-768 encryption.`
+                      : `Document will be encrypted using post-quantum ML-KEM-768 encryption to the recipient's key.`}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1568,7 +1813,8 @@ export default function PdfSigningPage() {
                 onClick={() => {
                   setShowUploadModal(false);
                   setUploadFile(null);
-                  setUploadConnectionId('');
+                  setUploadConnectionIds([]);
+                  setUploadThreshold(0);
                   setUploadDescription('');
                 }}
                 className="btn btn-secondary"
@@ -1577,7 +1823,7 @@ export default function PdfSigningPage() {
               </button>
               <button
                 onClick={handleUploadStep1}
-                disabled={!uploadFile || !uploadConnectionId || !kemStatuses[uploadConnectionId]?.ready || uploading}
+                disabled={!uploadFile || uploadConnectionIds.length === 0 || !uploadConnectionIds.every(id => kemStatuses[id]?.ready) || uploading}
                 className="btn btn-primary"
               >
                 {uploading ? 'Uploading...' : 'Next: Place Fields'}
@@ -2149,6 +2395,12 @@ export default function PdfSigningPage() {
           fields={signingFields}
           signerName=""
           onComplete={handleGuidedSignComplete}
+          onRequestDownload={() => {
+            if (selectedVault) {
+              setSelectedVault(selectedVault);
+              setShowDownloadModal(true);
+            }
+          }}
           onCancel={() => {
             setShowSigningView(false);
             setSigningPdfData(null);

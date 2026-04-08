@@ -5,7 +5,7 @@ import { SignatureAdoption, SIGNATURE_FONTS, SignatureFont } from './types'
 import { renderTypedSignature } from '../../../lib/signing/signatureStamper'
 
 interface SignatureAdoptionModalProps {
-  fieldType: 'signature' | 'initials'
+  fieldType: 'signature' | 'initials' | 'stamp' | 'drawing'
   onAdopt: (adoption: SignatureAdoption) => void
   onCancel: () => void
   initialName?: string
@@ -25,13 +25,46 @@ const PEN_COLORS = [
   { label: 'Red', value: '#991b1b' },
 ]
 
+const FIELD_LABELS: Record<SignatureAdoptionModalProps['fieldType'], { title: string; helper: string; placeholder: string; adoptLabel: string }> = {
+  signature: {
+    title: 'Adopt Your Signature',
+    helper: 'Create your signature using one of the methods below',
+    placeholder: 'Your full name',
+    adoptLabel: 'Signature',
+  },
+  initials: {
+    title: 'Adopt Your Initials',
+    helper: 'Create your initials using one of the methods below',
+    placeholder: 'Your initials',
+    adoptLabel: 'Initials',
+  },
+  stamp: {
+    title: 'Adopt Your Stamp',
+    helper: 'Create your stamp using one of the methods below',
+    placeholder: 'Stamp text',
+    adoptLabel: 'Stamp',
+  },
+  drawing: {
+    title: 'Adopt Your Drawing',
+    helper: 'Create your drawing using one of the methods below',
+    placeholder: 'Drawing label',
+    adoptLabel: 'Drawing',
+  },
+}
+
 export default function SignatureAdoptionModal({
   fieldType,
   onAdopt,
   onCancel,
   initialName = '',
 }: SignatureAdoptionModalProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('type')
+  const allowedTabs: TabId[] =
+    fieldType === 'stamp'
+      ? ['upload']
+      : fieldType === 'drawing'
+        ? ['draw']
+        : ['type', 'draw', 'upload']
+  const [activeTab, setActiveTab] = useState<TabId>(allowedTabs[0])
   const [name, setName] = useState(initialName)
   const [selectedFont, setSelectedFont] = useState<SignatureFont>(SIGNATURE_FONTS[0])
   const [fontsLoaded, setFontsLoaded] = useState(false)
@@ -59,6 +92,10 @@ export default function SignatureAdoptionModal({
       document.head.removeChild(link)
     }
   }, [])
+
+  useEffect(() => {
+    setActiveTab(allowedTabs[0])
+  }, [fieldType])
 
   // Init draw canvas
   useEffect(() => {
@@ -168,16 +205,16 @@ export default function SignatureAdoptionModal({
         {/* Header */}
         <div className="px-5 py-4 border-b border-border-primary">
           <h3 className="text-lg font-semibold text-text-primary">
-            {fieldType === 'signature' ? 'Adopt Your Signature' : 'Adopt Your Initials'}
+            {FIELD_LABELS[fieldType].title}
           </h3>
           <p className="text-sm text-text-secondary mt-1">
-            Create your {fieldType} using one of the methods below
+            {FIELD_LABELS[fieldType].helper}
           </p>
         </div>
 
         {/* Tabs */}
         <div className="flex border-b border-border-primary">
-          {TABS.map((tab) => (
+          {TABS.filter((tab) => allowedTabs.includes(tab.id)).map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -201,7 +238,7 @@ export default function SignatureAdoptionModal({
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={fieldType === 'signature' ? 'Your full name' : 'Your initials'}
+                placeholder={FIELD_LABELS[fieldType].placeholder}
                 className="w-full px-3 py-2 rounded-lg border border-border-primary bg-bg-secondary text-text-primary text-sm mb-4"
                 autoFocus
               />
@@ -220,7 +257,7 @@ export default function SignatureAdoptionModal({
                       style={{ fontFamily: `"${font}", cursive`, fontSize: '24px' }}
                       className="text-text-primary"
                     >
-                      {name || (fieldType === 'signature' ? 'Your Name' : 'AB')}
+                      {name || FIELD_LABELS[fieldType].adoptLabel}
                     </span>
                     <span className="text-xs text-text-secondary ml-3">{font}</span>
                   </button>
@@ -273,7 +310,7 @@ export default function SignatureAdoptionModal({
                 onMouseLeave={endDraw}
               />
               <p className="text-xs text-text-secondary mt-2 text-center">
-                Draw your {fieldType} above the line
+                Draw your {FIELD_LABELS[fieldType].adoptLabel.toLowerCase()} above the line
               </p>
             </div>
           )}
@@ -331,7 +368,7 @@ export default function SignatureAdoptionModal({
             disabled={!canAdopt}
             className="px-5 py-2 rounded-lg text-sm font-medium bg-accent-primary text-black hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Adopt {fieldType === 'signature' ? 'Signature' : 'Initials'}
+            Adopt {FIELD_LABELS[fieldType].adoptLabel}
           </button>
         </div>
       </div>

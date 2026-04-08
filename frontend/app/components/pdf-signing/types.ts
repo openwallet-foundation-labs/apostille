@@ -1,4 +1,15 @@
-export type FieldType = 'signature' | 'initials' | 'date' | 'name'
+export type FieldType =
+  | 'signature'
+  | 'initials'
+  | 'date'
+  | 'name'
+  | 'note'
+  | 'stamp'
+  | 'text'
+  | 'number'
+  | 'drawing'
+  | 'formula'
+  | 'email'
 
 export interface SigningField {
   id: string
@@ -28,6 +39,13 @@ export const DEFAULT_FIELD_SIZES: Record<FieldType, { width: number; height: num
   initials: { width: 10, height: 6 },
   date: { width: 15, height: 4 },
   name: { width: 20, height: 4 },
+  note: { width: 30, height: 10 },
+  stamp: { width: 18, height: 10 },
+  text: { width: 20, height: 4 },
+  number: { width: 12, height: 4 },
+  drawing: { width: 22, height: 12 },
+  formula: { width: 24, height: 6 },
+  email: { width: 24, height: 4 },
 }
 
 export const FIELD_LABELS: Record<FieldType, string> = {
@@ -35,6 +53,13 @@ export const FIELD_LABELS: Record<FieldType, string> = {
   initials: 'Initial Here',
   date: 'Date',
   name: 'Name',
+  note: 'Note',
+  stamp: 'Stamp',
+  text: 'Text',
+  number: 'Number',
+  drawing: 'Drawing',
+  formula: 'Formula',
+  email: 'Email',
 }
 
 export const SIGNATURE_FONTS = [

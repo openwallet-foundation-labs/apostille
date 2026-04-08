@@ -36,12 +36,17 @@ services:
     environment:
       - PORT=3002
       - AGENT_PORT=3001
-      - NODE_ENV=production
+      - AGENT_WS_PORT=3004
+      - NODE_ENV=development
       - PYTHON=/usr/bin/python3
       - DATABASE_URL=postgresql://${DB_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${DB_NAME:-verifiable_ai}
       - MAIN_WALLET_ID=${MAIN_WALLET_ID:?MAIN_WALLET_ID is required}
       - MAIN_WALLET_KEY=${MAIN_WALLET_KEY:?MAIN_WALLET_KEY is required}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - DB_SSL_MODE=disable
+      - AGENT_ENDPOINT=http://localhost:3001
+      - API_URL=http://localhost:3002
+      - DIGILOCKER_REDIRECT_URI=http://localhost:3002/api/institutional/callback/digilocker
     restart: unless-stopped
     volumes:
       - backend_data:/app/data

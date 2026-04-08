@@ -21,6 +21,13 @@ const FIELD_COLORS: Record<string, { border: string; bg: string; text: string }>
   initials: { border: 'border-blue-500', bg: 'bg-blue-500/15', text: 'text-blue-600' },
   date: { border: 'border-green-500', bg: 'bg-green-500/15', text: 'text-green-600' },
   name: { border: 'border-purple-500', bg: 'bg-purple-500/15', text: 'text-purple-600' },
+  note: { border: 'border-orange-500', bg: 'bg-orange-500/15', text: 'text-orange-600' },
+  stamp: { border: 'border-rose-500', bg: 'bg-rose-500/15', text: 'text-rose-600' },
+  text: { border: 'border-cyan-500', bg: 'bg-cyan-500/15', text: 'text-cyan-600' },
+  number: { border: 'border-emerald-500', bg: 'bg-emerald-500/15', text: 'text-emerald-600' },
+  drawing: { border: 'border-indigo-500', bg: 'bg-indigo-500/15', text: 'text-indigo-600' },
+  formula: { border: 'border-slate-500', bg: 'bg-slate-500/15', text: 'text-slate-600' },
+  email: { border: 'border-teal-500', bg: 'bg-teal-500/15', text: 'text-teal-600' },
 }
 
 export default function FieldOverlay({
@@ -131,6 +138,7 @@ export default function FieldOverlay({
         const isDragging = dragRef.current?.fieldId === field.id
         const isResizing = resizeRef.current?.fieldId === field.id
         const completion = completions?.[field.id]
+        const isImageCompletion = typeof completion === 'string' && completion.startsWith('data:image')
 
         let left = (field.x / 100) * pageDimensions.width
         let top = (field.y / 100) * pageDimensions.height
@@ -163,12 +171,18 @@ export default function FieldOverlay({
           >
             {/* Field content */}
             {completion ? (
-              <img
-                src={completion}
-                alt="Signature"
-                className="w-full h-full object-contain p-0.5"
-                draggable={false}
-              />
+              isImageCompletion ? (
+                <img
+                  src={completion as string}
+                  alt="Signature"
+                  className="w-full h-full object-contain p-0.5"
+                  draggable={false}
+                />
+              ) : (
+                <div className={`flex items-center justify-center h-full text-xs font-semibold ${colors.text} px-1`}>
+                  {String(completion)}
+                </div>
+              )
             ) : (
               <div className={`flex items-center justify-center h-full text-xs font-semibold ${colors.text}`}>
                 {FIELD_LABELS[field.type]}

@@ -16,6 +16,35 @@ export class PdfSigningPage {
   }
 
   /**
+   * Expand a collapsible section by clicking its header button.
+   * Sections are rendered as a .card with a button wrapping an h2 title.
+   * Content is only visible when expanded (React conditional rendering).
+   */
+  async expandSection(sectionTitle: string) {
+    const sectionCard = this.page
+      .locator('.card')
+      .filter({ has: this.page.locator('h2', { hasText: sectionTitle }) });
+
+    await sectionCard.first().waitFor({ state: 'attached', timeout: 10_000 });
+
+    const headerButton = sectionCard
+      .locator('button[type="button"]')
+      .filter({ has: this.page.locator('h2', { hasText: sectionTitle }) })
+      .first();
+
+    const isExpanded = await sectionCard
+      .locator('.divide-y')
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+    if (!isExpanded) {
+      await headerButton.click();
+      await this.page.waitForTimeout(300);
+    }
+  }
+
+  /**
    * Owner: Upload a PDF for signing.
    */
   async uploadPdf(
@@ -32,26 +61,13 @@ export class PdfSigningPage {
     );
     await fileInput.setInputFiles(filePath);
 
-    // Select connection from the dropdown inside the modal
-    const recipientSelect = this.page
-      .locator('.modal-container select')
-      .first();
-
-    // Wait for options to populate
+    // Select recipient by clicking the checkbox next to the connection label
     await this.page.waitForTimeout(1_000);
-
-    // Find the option that contains the connection label
-    const options = await recipientSelect.locator('option').all();
-    for (const option of options) {
-      const text = await option.textContent();
-      if (text && text.includes(connectionLabel)) {
-        const value = await option.getAttribute('value');
-        if (value) {
-          await recipientSelect.selectOption(value);
-          break;
-        }
-      }
-    }
+    const recipientCheckbox = this.page
+      .locator('.modal-container label')
+      .filter({ hasText: connectionLabel })
+      .locator('input[type="checkbox"]');
+    await recipientCheckbox.check();
 
     if (description) {
       await this.page
@@ -90,6 +106,18 @@ export class PdfSigningPage {
       force: true,
     });
 
+    // Also drag a "Name" field to exercise the NameAdoptionModal during signing
+    const nameItem = this.page
+      .locator('[draggable="true"]')
+      .filter({ hasText: 'Name' });
+    await nameItem.dragTo(canvas, {
+      targetPosition: {
+        x: Math.floor(canvasBox.width / 2),
+        y: Math.floor(canvasBox.height / 2),
+      },
+      force: true,
+    });
+
     // "Done - Send for Signing" should now be enabled
     await expect(doneBtn).toBeEnabled({ timeout: 5_000 });
 
@@ -111,6 +139,9 @@ export class PdfSigningPage {
     commonName: string;
     keyPassword: string;
   }) {
+    // Expand the collapsible section first
+    await this.expandSection('Documents to Sign');
+
     // Click "Sign" in the Documents to Sign section
     const signBtn = this.page
       .locator('.card')
@@ -156,6 +187,33 @@ export class PdfSigningPage {
       await expect(
         this.page.locator('h3', { hasText: 'Adopt Your Signature' })
       ).not.toBeVisible({ timeout: 10_000 });
+
+      // Handle any "Name" fields that trigger the NameAdoptionModal
+      const nameFieldBtn = sidebar
+        .getByRole('button')
+        .filter({ hasText: 'Name' })
+        .first();
+      const hasNameField = await nameFieldBtn.isVisible().catch(() => false);
+
+      if (hasNameField) {
+        await nameFieldBtn.click();
+
+        // NameAdoptionModal should open
+        await this.page
+          .locator('h3', { hasText: 'Enter Your Name' })
+          .waitFor({ timeout: 10_000 });
+
+        // Fill the name input and adopt
+        await this.page
+          .locator('input[placeholder="Your full name"]')
+          .fill(options.commonName);
+        await this.page.getByText('Adopt Name').click();
+
+        // Wait for modal to close
+        await expect(
+          this.page.locator('h3', { hasText: 'Enter Your Name' })
+        ).not.toBeVisible({ timeout: 10_000 });
+      }
 
       // "Continue to Sign" should now be enabled — click it
       const continueBtn = this.page.getByText('Continue to Sign');
@@ -230,6 +288,8 @@ export class PdfSigningPage {
    * Signer: Return the signed document to the owner.
    */
   async returnToOwner() {
+    await this.expandSection('Signed - Return to Owner');
+
     const returnBtn = this.page
       .locator('.card')
       .filter({ hasText: 'Signed - Return to Owner' })
@@ -249,8 +309,12 @@ export class PdfSigningPage {
     valid: boolean;
     signerName: string;
   }> {
-    // Click Verify on signed documents section
+    // Expand the Signed Documents section and click Verify
+    await this.expandSection('Signed Documents');
+
     const verifyBtn = this.page
+      .locator('.card')
+      .filter({ hasText: 'Signed Documents' })
       .getByText('Verify', { exact: true })
       .first();
     await verifyBtn.click();
@@ -297,7 +361,17 @@ export class PdfSigningPage {
   }
 
   async reload() {
-    await this.page.reload();
+    // Use SPA navigation to preserve in-memory auth tokens
+    await this.page
+      .getByRole('link', { name: 'Dashboard', exact: true })
+      .first()
+      .click();
+    await this.page.waitForTimeout(500);
+    await this.page
+      .getByRole('link', { name: 'PDF Signing', exact: true })
+      .first()
+      .click();
+    await this.page.waitForURL('**/dashboard/pdf-signing', { timeout: 15_000 });
     await this.page.getByText('PDF Signing').first().waitFor({ timeout: 15_000 });
   }
 }
