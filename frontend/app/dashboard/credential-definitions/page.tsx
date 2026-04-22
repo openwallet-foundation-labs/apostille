@@ -950,7 +950,7 @@ export default function CredentialDefinitionsPage() {
                 leaveFrom="opacity-100 scale-100"
                 leaveTo="opacity-0 scale-95"
               >
-                <Dialog.Panel className="w-full max-w-2xl transform overflow-hidden rounded-2xl bg-surface-50 dark:bg-surface-900 p-6 text-left align-middle shadow-xl transition-all max-h-[90vh] overflow-y-auto">
+                <Dialog.Panel className="w-full max-w-2xl transform overflow-hidden rounded-2xl bg-surface-50 p-6 text-left align-middle shadow-xl transition-all max-h-[90vh] overflow-y-auto">
                   <Dialog.Title as="h3" className="text-lg font-medium leading-6 text-text-primary">
                     Create New Credential Definition
                   </Dialog.Title>
@@ -962,7 +962,7 @@ export default function CredentialDefinitionsPage() {
                         Credential Format
                       </label>
                       <div className="space-y-3">
-                        <label className="flex items-start gap-2 cursor-pointer p-2 rounded border border-transparent hover:bg-surface-100 dark:bg-surface-800">
+                        <label className="flex items-start gap-2 cursor-pointer p-2 rounded border border-transparent hover:bg-surface-100">
                           <input
                             type="radio"
                             value="anoncreds"
@@ -975,7 +975,7 @@ export default function CredentialDefinitionsPage() {
                             <p className="text-xs text-text-tertiary">Traditional format, requires DIDComm connection</p>
                           </div>
                         </label>
-                        <label className="flex items-start gap-2 cursor-pointer p-2 rounded border border-transparent hover:bg-surface-100 dark:bg-surface-800">
+                        <label className="flex items-start gap-2 cursor-pointer p-2 rounded border border-transparent hover:bg-surface-100">
                           <input
                             type="radio"
                             value="oid4vc"
@@ -988,7 +988,7 @@ export default function CredentialDefinitionsPage() {
                             <p className="text-xs text-text-tertiary">Modern format with QR code scanning</p>
                           </div>
                         </label>
-                        <label className="flex items-start gap-2 cursor-pointer p-2 rounded border border-transparent hover:bg-surface-100 dark:bg-surface-800">
+                        <label className="flex items-start gap-2 cursor-pointer p-2 rounded border border-transparent hover:bg-surface-100">
                           <input
                             type="radio"
                             value="mso_mdoc"
@@ -1029,7 +1029,7 @@ export default function CredentialDefinitionsPage() {
                         <select
                           value={selectedSchemaId}
                           onChange={(e) => setSelectedSchemaId(e.target.value)}
-                          className="w-full px-3 py-2 border border-border-secondary rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                          className="w-full px-3 py-2 bg-surface-50 border border-border-secondary rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                           required
                         >
                           <option value="">Select a schema</option>
@@ -1058,7 +1058,7 @@ export default function CredentialDefinitionsPage() {
                               setMdocSelectedAttributes([]);
                               setMdocNamespaces({});
                             }}
-                            className="w-full px-3 py-2 border border-border-secondary rounded-md shadow-sm focus:outline-none focus:ring-success-500 focus:border-success-500 text-text-primary"
+                            className="w-full px-3 py-2 bg-surface-50 border border-border-secondary rounded-md shadow-sm focus:outline-none focus:ring-success-500 focus:border-success-500 text-text-primary"
                           >
                             <option value={MDL_DOCTYPE}>Mobile Driver&apos;s License (mDL)</option>
                             <option value={MID_DOCTYPE}>Mobile ID (mID)</option>
@@ -1070,7 +1070,7 @@ export default function CredentialDefinitionsPage() {
                         </div>
 
                         {/* Namespace Configuration */}
-                        <div className="border rounded-lg p-4 bg-surface-100 dark:bg-surface-800">
+                        <div className="border rounded-lg p-4 bg-surface-100">
                           <MdlNamespaceConfig
                             doctype={mdocDoctype}
                             selectedAttributes={mdocSelectedAttributes}
@@ -1083,7 +1083,7 @@ export default function CredentialDefinitionsPage() {
                     )}
 
                     {selectedSchemaId && credentialFormat !== 'mso_mdoc' && (
-                      <div className="mb-4 p-3 bg-surface-100 dark:bg-surface-800 border border-border-secondary rounded-md">
+                      <div className="mb-4 p-3 bg-surface-100 border border-border-secondary rounded-md">
                         <h4 className="text-sm font-medium text-text-secondary mb-2">Selected Schema Details</h4>
                         {(() => {
                           const schema = schemas.find(s => s.id === selectedSchemaId);
@@ -1125,7 +1125,7 @@ export default function CredentialDefinitionsPage() {
                         type="text"
                         value={tag}
                         onChange={(e) => setTag(e.target.value)}
-                        className="w-full px-3 py-2 border border-border-secondary rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                        className="w-full px-3 py-2 bg-surface-50 border border-border-secondary rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                         required
                         placeholder="default"
                       />
@@ -1227,7 +1227,7 @@ export default function CredentialDefinitionsPage() {
                                       className={`p-3 border rounded-lg cursor-pointer transition-all ${
                                         selectedTemplateId === template.id
                                           ? 'border-primary-500 bg-blue-50 ring-2 ring-blue-200'
-                                          : 'border-border-secondary hover:border-border-secondary hover:bg-surface-100 dark:bg-surface-800'
+                                          : 'border-border-secondary hover:border-border-secondary hover:bg-surface-100'
                                       } ${isMissingRequired ? 'opacity-60 grayscale' : ''}`}
                                     >
                                       {/* Template Preview */}
@@ -1278,7 +1278,7 @@ export default function CredentialDefinitionsPage() {
                               )}
                             </div>
                           ) : (
-                            <div className="text-center py-4 bg-surface-100 dark:bg-surface-800 rounded-lg">
+                            <div className="text-center py-4 bg-surface-100 rounded-lg">
                               <p className="text-sm text-text-tertiary mb-2">No saved templates found</p>
                               <Link
                                 href="/credential-designer"
@@ -1309,7 +1309,7 @@ export default function CredentialDefinitionsPage() {
                       </div>
 
                       {showOverlayFields && (
-                        <div className="space-y-4 bg-surface-100 dark:bg-surface-800 p-4 rounded-md">
+                        <div className="space-y-4 bg-surface-100 p-4 rounded-md">
                           {/* Meta Section */}
                           <div>
                             <h5 className="text-xs font-semibold text-text-secondary uppercase mb-2">Credential Metadata</h5>
@@ -1320,7 +1320,7 @@ export default function CredentialDefinitionsPage() {
                                   type="text"
                                   value={overlayMeta.name}
                                   onChange={(e) => setOverlayMeta({ ...overlayMeta, name: e.target.value })}
-                                  className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                  className="w-full px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                                   placeholder="e.g., Student ID Card"
                                 />
                               </div>
@@ -1330,7 +1330,7 @@ export default function CredentialDefinitionsPage() {
                                   type="text"
                                   value={overlayMeta.issuer}
                                   onChange={(e) => setOverlayMeta({ ...overlayMeta, issuer: e.target.value })}
-                                  className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                  className="w-full px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                                   placeholder="e.g., University of Example"
                                 />
                               </div>
@@ -1339,7 +1339,7 @@ export default function CredentialDefinitionsPage() {
                                 <textarea
                                   value={overlayMeta.description}
                                   onChange={(e) => setOverlayMeta({ ...overlayMeta, description: e.target.value })}
-                                  className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                  className="w-full px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                                   rows={2}
                                   placeholder="Describe what this credential represents..."
                                 />
@@ -1350,7 +1350,7 @@ export default function CredentialDefinitionsPage() {
                                   type="url"
                                   value={overlayMeta.issuer_url}
                                   onChange={(e) => setOverlayMeta({ ...overlayMeta, issuer_url: e.target.value })}
-                                  className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                  className="w-full px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                                   placeholder="https://example.edu"
                                 />
                               </div>
@@ -1360,7 +1360,7 @@ export default function CredentialDefinitionsPage() {
                                   type="text"
                                   value={overlayMeta.issuer_description}
                                   onChange={(e) => setOverlayMeta({ ...overlayMeta, issuer_description: e.target.value })}
-                                  className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                  className="w-full px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                                   placeholder="Brief issuer description"
                                 />
                               </div>
@@ -1384,7 +1384,7 @@ export default function CredentialDefinitionsPage() {
                                     type="text"
                                     value={overlayBranding.primary_background_color}
                                     onChange={(e) => setOverlayBranding({ ...overlayBranding, primary_background_color: e.target.value })}
-                                    className="flex-1 px-2 py-1.5 text-sm border border-border-secondary rounded text-text-primary"
+                                    className="flex-1 px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded text-text-primary"
                                     placeholder="#FFFFFF"
                                   />
                                 </div>
@@ -1402,7 +1402,7 @@ export default function CredentialDefinitionsPage() {
                                     type="text"
                                     value={overlayBranding.secondary_background_color}
                                     onChange={(e) => setOverlayBranding({ ...overlayBranding, secondary_background_color: e.target.value })}
-                                    className="flex-1 px-2 py-1.5 text-sm border border-border-secondary rounded text-text-primary"
+                                    className="flex-1 px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded text-text-primary"
                                     placeholder="#F5F5F5"
                                   />
                                 </div>
@@ -1413,7 +1413,7 @@ export default function CredentialDefinitionsPage() {
                                   type="text"
                                   value={overlayBranding.primary_attribute}
                                   onChange={(e) => setOverlayBranding({ ...overlayBranding, primary_attribute: e.target.value })}
-                                  className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                  className="w-full px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                                   placeholder="e.g., name"
                                 />
                               </div>
@@ -1423,7 +1423,7 @@ export default function CredentialDefinitionsPage() {
                                   type="text"
                                   value={overlayBranding.secondary_attribute}
                                   onChange={(e) => setOverlayBranding({ ...overlayBranding, secondary_attribute: e.target.value })}
-                                  className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                  className="w-full px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                                   placeholder="e.g., studentId"
                                 />
                               </div>
@@ -1445,7 +1445,7 @@ export default function CredentialDefinitionsPage() {
                                       type="text"
                                       value={(overlayBranding as any)[roleKey] || ''}
                                       onChange={(e) => setOverlayBranding({ ...overlayBranding, [roleKey]: e.target.value })}
-                                      className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                      className="w-full px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                                       placeholder={placeholderMap[roleKey] || ''}
                                     />
                                   </div>
@@ -1457,7 +1457,7 @@ export default function CredentialDefinitionsPage() {
                                   type="url"
                                   value={overlayBranding.logo}
                                   onChange={(e) => setOverlayBranding({ ...overlayBranding, logo: e.target.value })}
-                                  className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                  className="w-full px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                                   placeholder="https://example.edu/logo.png"
                                 />
                               </div>
@@ -1467,7 +1467,7 @@ export default function CredentialDefinitionsPage() {
                                   type="url"
                                   value={overlayBranding.background_image}
                                   onChange={(e) => setOverlayBranding({ ...overlayBranding, background_image: e.target.value })}
-                                  className="w-full px-2 py-1.5 text-sm border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
+                                  className="w-full px-2 py-1.5 text-sm bg-surface-50 border border-border-secondary rounded focus:ring-primary-500 focus:border-primary-500 text-text-primary"
                                   placeholder="https://example.edu/bg.png"
                                 />
                               </div>
@@ -1481,7 +1481,7 @@ export default function CredentialDefinitionsPage() {
                       <button
                         type="button"
                         onClick={closeModal}
-                        className="px-4 py-2 border border-border-secondary rounded-md text-text-secondary hover:bg-surface-100 dark:bg-surface-800"
+                        className="px-4 py-2 bg-surface-100 border border-border-secondary rounded-md text-text-secondary hover:bg-surface-200"
                       >
                         Cancel
                       </button>
@@ -1532,7 +1532,7 @@ export default function CredentialDefinitionsPage() {
                 leaveFrom="opacity-100 scale-100"
                 leaveTo="opacity-0 scale-95"
               >
-                <Dialog.Panel className="w-full max-w-3xl transform overflow-hidden rounded-2xl bg-surface-50 dark:bg-surface-900 p-6 text-left align-middle shadow-xl transition-all">
+                <Dialog.Panel className="w-full max-w-3xl transform overflow-hidden rounded-2xl bg-surface-50 p-6 text-left align-middle shadow-xl transition-all">
                   <Dialog.Title as="h3" className="text-lg font-medium leading-6 text-text-primary mb-4">
                     Credential Definition Details
                   </Dialog.Title>
@@ -1590,7 +1590,7 @@ export default function CredentialDefinitionsPage() {
                             <span className="ml-2 text-sm text-text-secondary">Loading schema details...</span>
                           </div>
                         ) : schemaDetails ? (
-                          <div className="bg-surface-100 dark:bg-surface-800 p-4 rounded border border-border-secondary">
+                          <div className="bg-surface-100 p-4 rounded border border-border-secondary">
                             <div className="grid grid-cols-2 gap-3 mb-4">
                               <div>
                                 <h5 className="text-xs font-semibold text-text-secondary mb-1">Schema ID</h5>
@@ -1660,7 +1660,7 @@ export default function CredentialDefinitionsPage() {
                               <span className="ml-2 text-sm text-text-secondary">Loading overlay...</span>
                             </div>
                           ) : overlayData ? (
-                            <div className="bg-gradient-to-r from-surface-100 to-surface-200 dark:from-surface-800 dark:to-surface-700 p-4 rounded-lg border border-border-secondary">
+                            <div className="bg-gradient-to-r from-surface-100 to-surface-200 p-4 rounded-lg border border-border-secondary">
                               {/* Preview Card */}
                               {(overlayData.branding || overlayData.meta) && (
                                 <div className="mb-4">
@@ -1860,7 +1860,7 @@ export default function CredentialDefinitionsPage() {
                               )}
                             </div>
                           ) : (
-                            <p className="text-sm text-text-tertiary italic bg-surface-100 dark:bg-surface-800 p-3 rounded">
+                            <p className="text-sm text-text-tertiary italic bg-surface-100 p-3 rounded">
                               No OCA overlay configured for this credential definition.
                             </p>
                           )}

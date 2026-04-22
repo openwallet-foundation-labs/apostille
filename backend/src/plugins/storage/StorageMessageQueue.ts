@@ -1,11 +1,11 @@
 import type {
   AddMessageOptions,
+  DidCommQueueTransportRepository,
   GetAvailableMessageCountOptions,
-  MessagePickupRepository,
-  QueuedMessage,
+  QueuedDidCommMessage,
   RemoveMessagesOptions,
   TakeFromQueueOptions,
-} from '@credo-ts/core'
+} from '@credo-ts/didcomm'
 
 import { AgentContext, injectable, utils } from '@credo-ts/core'
 
@@ -19,35 +19,29 @@ export interface NotificationMessage {
 }
 
 @injectable()
-export class StorageServiceMessageQueue implements MessagePickupRepository {
-  private messageRepository: MessageRepository
-  private agentContext: AgentContext
-
-  public constructor(
-    messageRepository: MessageRepository,
-    agentContext: AgentContext,
-  ) {
-    this.messageRepository = messageRepository
-    this.agentContext = agentContext
-  }
-
-  public async getAvailableMessageCount(options: GetAvailableMessageCountOptions) {
+export class StorageServiceMessageQueue implements DidCommQueueTransportRepository {
+  public async getAvailableMessageCount(agentContext: AgentContext, options: GetAvailableMessageCountOptions) {
     const { connectionId } = options
 
-    const messageRecords = await this.messageRepository.findByConnectionId(this.agentContext, connectionId)
+    const messageRepository = agentContext.dependencyManager.resolve(MessageRepository)
+    const messageRecords = await messageRepository.findByConnectionId(agentContext, connectionId)
 
-    this.agentContext.config.logger.debug(`Found ${messageRecords.length} messages for connection ${connectionId}`)
+    agentContext.config.logger.debug(`Found ${messageRecords.length} messages for connection ${connectionId}`)
 
     return messageRecords.length
   }
 
-  public async takeFromQueue(options: TakeFromQueueOptions): Promise<QueuedMessage[]> {
+  public async takeFromQueue(
+    agentContext: AgentContext,
+    options: TakeFromQueueOptions
+  ): Promise<QueuedDidCommMessage[]> {
     const { connectionId, limit, deleteMessages } = options
 
-    const messageRecords = await this.messageRepository.findByConnectionId(this.agentContext, connectionId)
+    const messageRepository = agentContext.dependencyManager.resolve(MessageRepository)
+    const messageRecords = await messageRepository.findByConnectionId(agentContext, connectionId)
 
     const messagesToTake = limit ?? messageRecords.length
-    this.agentContext.config.logger.debug(
+    agentContext.config.logger.debug(
       `Taking ${messagesToTake} messages from queue for connection ${connectionId} (of total ${
         messageRecords.length
       }) with deleteMessages=${String(deleteMessages)}`
@@ -56,7 +50,10 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     const messageRecordsToReturn = messageRecords.splice(0, messagesToTake)
 
     if (deleteMessages) {
-      this.removeMessages({ connectionId, messageIds: messageRecordsToReturn.map((msg) => msg.id) })
+      await this.removeMessages(agentContext, {
+        connectionId,
+        messageIds: messageRecordsToReturn.map((msg) => msg.id),
+      })
     }
 
     const queuedMessages = messageRecordsToReturn.map((messageRecord) => ({
@@ -68,17 +65,18 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     return queuedMessages
   }
 
-  public async addMessage(options: AddMessageOptions) {
+  public async addMessage(agentContext: AgentContext, options: AddMessageOptions) {
     const { connectionId, payload } = options
 
-    this.agentContext.config.logger.debug(
+    agentContext.config.logger.debug(
       `Adding message to queue for connection ${connectionId} with payload ${JSON.stringify(payload)}`
     )
 
     const id = utils.uuid()
 
-    await this.messageRepository.save(
-      this.agentContext,
+    const messageRepository = agentContext.dependencyManager.resolve(MessageRepository)
+    await messageRepository.save(
+      agentContext,
       new MessageRecord({
         id,
         connectionId,
@@ -90,13 +88,13 @@ export class StorageServiceMessageQueue implements MessagePickupRepository {
     return id
   }
 
-  public async removeMessages(options: RemoveMessagesOptions) {
+  public async removeMessages(agentContext: AgentContext, options: RemoveMessagesOptions) {
     const { messageIds } = options
 
-    this.agentContext.config.logger.debug(`Removing message ids ${messageIds}`)
+    agentContext.config.logger.debug(`Removing message ids ${messageIds}`)
 
     const deletePromises = messageIds.map((messageId) =>
-      this.messageRepository.deleteById(this.agentContext, messageId)
+      agentContext.dependencyManager.resolve(MessageRepository).deleteById(agentContext, messageId)
     )
 
     await Promise.all(deletePromises)

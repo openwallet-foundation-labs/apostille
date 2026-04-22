@@ -1,5 +1,4 @@
 import { createTenant, getAgent } from '../services/agentService';
-import { agentDependencies, HttpInboundTransport } from '@credo-ts/node';
 import { KanonModuleConfig } from '../plugins/kanon/KanonModuleConfig';
 import { EthereumLedgerService } from '../plugins/kanon/ledger';
 
@@ -32,12 +31,12 @@ export const demoAgentSetup = async () => {
         const tenantId = await getDemoTenantId();
         const agent = await getAgent({ tenantId })
 
-        const { outOfBandInvitation } = await agent.oob.createInvitation({
+        const { outOfBandInvitation } = await agent.didcomm.oob.createInvitation({
             multiUseInvitation: true,
             goal: "Demo"
         });
         // Use our agent endpoint directly (no mediator)
-        const invitationUrl = outOfBandInvitation.toUrl({ domain: agent.config.endpoints[0] });
+        const invitationUrl = outOfBandInvitation.toUrl({ domain: agent.didcomm.config.endpoints[0] });
         return {
             success: true,
             invitationUrl,

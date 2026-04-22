@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getAgent } from '../services/agentService';
-import { ProofExchangeRecord, AutoAcceptProof } from '@credo-ts/core';
+import { DidCommAutoAcceptProof, DidCommProofExchangeRecord } from '@credo-ts/didcomm';
 import { auth } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -22,11 +22,11 @@ router.route('/')
       }
 
       const agent = await getAgent({ tenantId });
-      const proofs = await agent.proofs.getAll();
+      const proofs = await agent.didcomm.proofs.getAll();
       
       res.status(200).json({
         success: true,
-        proofs: proofs.map((proof: ProofExchangeRecord) => ({
+        proofs: proofs.map((proof: DidCommProofExchangeRecord) => ({
           id: proof.id,
           state: proof.state,
           createdAt: proof.createdAt,
@@ -87,7 +87,7 @@ router.route('/request')
       console.log('Formatted requested attributes:', JSON.stringify(requestedAttributes, null, 2));
       
       // Send the proof request
-      const proofRecord = await agent.proofs.requestProof({
+      const proofRecord = await agent.didcomm.proofs.requestProof({
         connectionId,
         protocolVersion: 'v2',
         proofFormats: {
@@ -97,7 +97,7 @@ router.route('/request')
             requested_attributes: requestedAttributes
           }
         },
-        autoAcceptProof: AutoAcceptProof.Always
+        autoAcceptProof: DidCommAutoAcceptProof.Always
       });
       
       res.status(200).json({
@@ -138,7 +138,7 @@ router.route('/:proofId/accept')
       }
 
       const agent = await getAgent({ tenantId });
-      const proofRecord = await agent.proofs.findById(proofId);
+      const proofRecord = await agent.didcomm.proofs.findById(proofId);
       
       if (!proofRecord) {
         res.status(404).json({
@@ -152,7 +152,7 @@ router.route('/:proofId/accept')
       let requestedCredentials;
       try {
         console.log('Attempting automatic credential selection for proof:', proofId);
-        requestedCredentials = await agent.proofs.selectCredentialsForRequest({
+        requestedCredentials = await agent.didcomm.proofs.selectCredentialsForRequest({
           proofRecordId: proofRecord.id,
         });
         console.log('Automatic credential selection successful:', JSON.stringify(requestedCredentials, null, 2));
@@ -170,13 +170,13 @@ router.route('/:proofId/accept')
       console.log('Proof record:', JSON.stringify(proofRecord, null, 2));
       console.log('Proof ID:', proofId);
       // Accept the proof request with selected credentials
-      await agent.proofs.acceptRequest({
+      await agent.didcomm.proofs.acceptRequest({
         proofRecordId: proofId,
         proofFormats: requestedCredentials.proofFormats
       });
       
       // Get updated proof record
-      const updatedProofRecord = await agent.proofs.findById(proofId);
+      const updatedProofRecord = await agent.didcomm.proofs.findById(proofId);
       
       if (!updatedProofRecord) {
         res.status(404).json({
@@ -222,7 +222,7 @@ router.route('/:proofId')
       }
 
       const agent = await getAgent({ tenantId });
-      const proof = await agent.proofs.findById(proofId);
+      const proof = await agent.didcomm.proofs.findById(proofId);
       
       if (!proof) {
         res.status(404).json({

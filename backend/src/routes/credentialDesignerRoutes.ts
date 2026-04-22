@@ -500,7 +500,7 @@ router.get('/assets/:id/image', async (req: Request, res: Response) => {
         const { id } = req.params;
 
         // Get asset without tenant check (public endpoint)
-        const { db } = require('../db/driver');
+        const { db } = await import('../db/driver');
         const result = await db.query(
             `SELECT content, mime_type, file_name FROM credential_card_assets WHERE id = $1`,
             [id]

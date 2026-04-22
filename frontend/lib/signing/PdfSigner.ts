@@ -15,7 +15,7 @@ const cryptoEngine = new pkijs.CryptoEngine({
   name: 'webcrypto',
   crypto: crypto,
   subtle: crypto.subtle,
-});
+}) as unknown as pkijs.ICryptoEngine;
 pkijs.setEngine('webcrypto', crypto, cryptoEngine);
 
 export interface SignOptions {

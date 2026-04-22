@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { auth } from '../../middleware/authMiddleware'
 import { getAgent } from '../../services/agentService'
-import { WorkflowCommandRepository } from '@ajna-inc/workflow/build'
+import { WorkflowCommandRepository, CommandQueueService } from '@ajna-inc/workflow'
 
 const router = Router()
 
@@ -17,7 +17,7 @@ router.get('/queue/metrics', auth, async (req: Request, res: Response) => {
 
     let active = undefined as number | undefined
     try {
-      const queue = agent.dependencyManager.resolve((require('@ajna-inc/workflow/build').CommandQueueService)) as unknown as {
+      const queue = agent.dependencyManager.resolve(CommandQueueService) as unknown as {
         getMetrics?: () => Promise<{ active?: number }>
       }
       if (queue && typeof queue.getMetrics === 'function') {
@@ -74,4 +74,3 @@ router.get('/queue/commands', auth, async (req: Request, res: Response) => {
 })
 
 export default router
-

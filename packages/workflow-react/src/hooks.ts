@@ -15,9 +15,9 @@ export function useWorkflowStatus(
   const pollMs = opts?.pollMs ?? 0
   const timer = useRef<NodeJS.Timeout | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!instanceId) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const resp = await client.status(instanceId, {
@@ -31,7 +31,7 @@ export function useWorkflowStatus(
     } catch (e) {
       setError((e as Error).message)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [client, instanceId, uiProfile, opts?.includeActions, opts?.connectionId, opts?.viewerDid])
 
@@ -40,7 +40,7 @@ export function useWorkflowStatus(
     void load()
     if (pollMs > 0) {
       timer.current && clearInterval(timer.current)
-      timer.current = setInterval(() => void load(), pollMs)
+      timer.current = setInterval(() => void load(true), pollMs)
       return () => {
         timer.current && clearInterval(timer.current)
       }

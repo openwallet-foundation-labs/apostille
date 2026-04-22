@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getAgent } from '../services/agentService';
-import { AutoAcceptProof } from '@credo-ts/core';
+import { DidCommAutoAcceptProof } from '@credo-ts/didcomm';
 
 const router = Router();
 // Demo tenant ID - required for demo routes
@@ -25,14 +25,14 @@ router.route('/').get(async (req: Request, res: Response) => {
         const _workerAgent = await getAgent({ tenantId: DEMO_TENANT_ID })
         // createInvitation returns OutOfBandRecord directly
         // The record has .id (record ID) and .outOfBandInvitation (the invitation message)
-        const outOfBandRecord = await _workerAgent.oob.createInvitation({
+        const outOfBandRecord = await _workerAgent.didcomm.oob.createInvitation({
             goal: goal as string,
             label: label as string,
             goalCode: goal as string,
         })
 
         // Use mediator-less flow: advertise our agent's HTTP endpoint
-        const invitationUrl = outOfBandRecord.outOfBandInvitation.toUrl({ domain: _workerAgent.config.endpoints[0] });
+        const invitationUrl = outOfBandRecord.outOfBandInvitation.toUrl({ domain: _workerAgent.didcomm.config.endpoints[0] });
 
         // IMPORTANT: Use outOfBandRecord.id (not outOfBandInvitation.id)
         // The connection's outOfBandId field references the record ID, not the invitation message ID
@@ -69,10 +69,10 @@ router.route('/connection/:oobId').get(async (req: Request, res: Response) => {
 
     try {
         const _workerAgent = await getAgent({ tenantId: DEMO_TENANT_ID });
-        const connections = await _workerAgent.connections.getAll();
+        const connections = await _workerAgent.didcomm.connections.getAll();
 
         // Find a connection with matching outOfBandId that is completed
-        const connection = connections.find(c =>
+        const connection = connections.find((c: { outOfBandId?: string; state?: string }) =>
             c.outOfBandId === oobId && c.state === 'completed'
         );
 
@@ -160,7 +160,7 @@ router.route('/proof').post(async (req: Request, res: Response) => {
 
         console.log('Requesting proof with attributes:', requestedAttributes);
 
-        const proofRecord = await _workerAgent.proofs.requestProof({
+        const proofRecord = await _workerAgent.didcomm.proofs.requestProof({
             connectionId,
             protocolVersion: 'v2',
             proofFormats: {
@@ -170,7 +170,7 @@ router.route('/proof').post(async (req: Request, res: Response) => {
                     requested_attributes: requestedAttributes
                 }
             },
-            autoAcceptProof: AutoAcceptProof.Always
+            autoAcceptProof: DidCommAutoAcceptProof.Always
         });
 
         console.log('Proof request created:', { proofId: proofRecord.id, state: proofRecord.state });
@@ -199,7 +199,7 @@ router.route('/proof/:proofId').get(async (req: Request, res: Response) => {
 
     try {
         const _workerAgent = await getAgent({ tenantId: DEMO_TENANT_ID });
-        const proof = await _workerAgent.proofs.findById(proofId);
+        const proof = await _workerAgent.didcomm.proofs.findById(proofId);
 
         if (!proof) {
             res.status(404).json({
@@ -214,7 +214,7 @@ router.route('/proof/:proofId').get(async (req: Request, res: Response) => {
         if (proof.state === 'done' && proof.isVerified) {
             try {
                 // Try to get the format data from the proof record
-                const formatData = await _workerAgent.proofs.getFormatData(proofId) as any;
+                const formatData = await _workerAgent.didcomm.proofs.getFormatData(proofId) as any;
                 console.log('Proof format data:', JSON.stringify(formatData, null, 2));
 
                 // Extract from anoncreds presentation

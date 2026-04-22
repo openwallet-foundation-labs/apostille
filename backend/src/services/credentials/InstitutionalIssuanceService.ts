@@ -215,8 +215,8 @@ export class InstitutionalIssuanceService {
      */
     private async findConnectionByOobId(oobId: string): Promise<any | null> {
         try {
-            const connections = await this.agent.connections.getAll();
-            const connection = connections.find(c => c.outOfBandId === oobId);
+            const connections = await this.agent.didcomm.connections.getAll();
+            const connection = connections.find((c: { outOfBandId?: string }) => c.outOfBandId === oobId);
             return connection || null;
         } catch (error) {
             console.error('[InstitutionalIssuance] Error finding connection by oobId:', error);
@@ -264,7 +264,7 @@ export class InstitutionalIssuanceService {
 
         console.log(`[InstitutionalIssuance] Issuing credential with ${credentialAttributes.length} attributes`);
 
-        return this.agent.credentials.offerCredential({
+        return this.agent.didcomm.credentials.offerCredential({
             connectionId,
             // @ts-ignore
             protocolVersion: 'v2',

@@ -183,7 +183,7 @@ export function InstancesTable({
                         key={instance.id}
                         className={`transition-colors ${
                           isActive
-                            ? 'bg-primary-50/50'
+                            ? 'bg-primary-50/50 dark:bg-primary-900/20'
                             : 'hover:bg-surface-50'
                         }`}
                       >

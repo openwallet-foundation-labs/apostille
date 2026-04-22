@@ -84,7 +84,7 @@ function TemplateCard({
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-lg bg-primary-100 dark:bg-primary-900/40 text-primary-600 dark:text-primary-400 flex items-center justify-center">
             {getTemplateIcon(template.template_id)}
           </div>
           <div>
@@ -161,10 +161,10 @@ export function QuickStartCards({
   const [isCollapsed, setIsCollapsed] = useState(false)
 
   return (
-    <div className="bg-gradient-to-br from-primary-50/50 to-surface-100 border border-primary-200/30 rounded-2xl overflow-hidden">
+    <div className="bg-gradient-to-br from-primary-50/50 to-surface-100 dark:from-primary-950/30 dark:to-surface-100 border border-primary-200/30 dark:border-primary-800/30 rounded-2xl overflow-hidden">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-primary-50/30 transition-colors"
+        className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-primary-50/30 dark:hover:bg-primary-950/20 transition-colors"
         onClick={() => setIsCollapsed(!isCollapsed)}
       >
         <div className="flex items-center gap-3">

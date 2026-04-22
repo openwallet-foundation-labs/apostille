@@ -1,11 +1,16 @@
 import type { Agent, BaseEvent } from '@credo-ts/core'
-import { EventEmitter } from '@credo-ts/core'
-import { RepositoryEventTypes } from '@credo-ts/core'
-import { AgentEventTypes, type AgentMessageReceivedEvent } from '@credo-ts/core'
-import { BasicMessageEventTypes, type BasicMessageStateChangedEvent } from '@credo-ts/core'
-import { CredentialEventTypes, type CredentialStateChangedEvent } from '@credo-ts/core'
-import { ProofEventTypes, type ProofStateChangedEvent } from '@credo-ts/core'
-import { WorkflowEventTypes, type WorkflowInstanceStateChangedEvent, type WorkflowInstanceStatusChangedEvent, type WorkflowInstanceCompletedEvent } from '@ajna-inc/workflow/build/WorkflowEvents'
+import { EventEmitter, RepositoryEventTypes } from '@credo-ts/core'
+import {
+  DidCommBasicMessageEventTypes,
+  DidCommCredentialEventTypes,
+  DidCommEventTypes,
+  DidCommProofEventTypes,
+  type DidCommBasicMessageStateChangedEvent,
+  type DidCommCredentialStateChangedEvent,
+  type DidCommMessageReceivedEvent,
+  type DidCommProofStateChangedEvent,
+} from '@credo-ts/didcomm'
+import { WorkflowEventTypes, type WorkflowInstanceStateChangedEvent, type WorkflowInstanceStatusChangedEvent, type WorkflowInstanceCompletedEvent } from '@ajna-inc/workflow'
 import { SigningEventTypes } from '@ajna-inc/signing'
 import type { SigningStateChangedEvent } from '@ajna-inc/signing'
 import { PoeEventTypes } from '@ajna-inc/poe'
@@ -72,7 +77,7 @@ async function emit<T extends BaseEvent>(tenantId: string, e: T) {
   try {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    if (e.type === BasicMessageEventTypes.BasicMessageStateChanged) {
+    if (e.type === DidCommBasicMessageEventTypes.DidCommBasicMessageStateChanged) {
       const rec = (e as any)?.payload?.basicMessageRecord
       const msg = (e as any)?.payload?.message
       const role = rec?.role
@@ -106,7 +111,7 @@ async function emit<T extends BaseEvent>(tenantId: string, e: T) {
   let data: any = e.payload
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
-  if ((e as any).type === BasicMessageEventTypes.BasicMessageStateChanged) {
+  if ((e as any).type === DidCommBasicMessageEventTypes.DidCommBasicMessageStateChanged) {
     const rec = (e as any)?.payload?.basicMessageRecord
     const msg = (e as any)?.payload?.message
     data = {
@@ -171,9 +176,11 @@ export async function onSocketConnected(tenantId: string, agent: Agent) {
     return true
   }
 
-  const onBasic: (e: BasicMessageStateChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e) }
-  const onCred: (e: CredentialStateChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e) }
-  const onProof: (e: ProofStateChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e) }
+  const onBasic: (e: DidCommBasicMessageStateChangedEvent) => void = (e) => {
+    if (acceptForTenant(e)) emit(tenantId, e)
+  }
+  const onCred: (e: DidCommCredentialStateChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e) }
+  const onProof: (e: DidCommProofStateChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e) }
   const onWfState: (e: WorkflowInstanceStateChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e as any) }
   const onWfStatus: (e: WorkflowInstanceStatusChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e as any) }
   const onWfDone: (e: WorkflowInstanceCompletedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e as any) }
@@ -270,14 +277,14 @@ export async function onSocketConnected(tenantId: string, agent: Agent) {
         const type = role === 'receiver' ? 'AppMessageReceived' : 'AppMessageSent'
         if (!isEnabled(tenantId, type as any)) {
           emit(tenantId, {
-            type: BasicMessageEventTypes.BasicMessageStateChanged,
+            type: DidCommBasicMessageEventTypes.DidCommBasicMessageStateChanged,
             payload: { basicMessageRecord: rec, source: 'repository' },
           } as any)
         }
       }
     } catch {}
   }
-  const onAgentRecv: (e: AgentMessageReceivedEvent) => void = (e) => {
+  const onAgentRecv: (e: DidCommMessageReceivedEvent) => void = (e) => {
     try { console.log('[WS] AgentMessageReceived', { tenantId, type: (e as any).type }) } catch {}
     if (!acceptForTenant(e)) return
     // Only forward basic messages as AppMessageReceived
@@ -325,9 +332,9 @@ export async function onSocketConnected(tenantId: string, agent: Agent) {
     })()
   }
 
-  emitter.on(BasicMessageEventTypes.BasicMessageStateChanged, onBasic)
-  emitter.on(CredentialEventTypes.CredentialStateChanged, onCred)
-  emitter.on(ProofEventTypes.ProofStateChanged, onProof)
+  emitter.on(DidCommBasicMessageEventTypes.DidCommBasicMessageStateChanged, onBasic)
+  emitter.on(DidCommCredentialEventTypes.DidCommCredentialStateChanged, onCred)
+  emitter.on(DidCommProofEventTypes.ProofStateChanged, onProof)
   emitter.on(WorkflowEventTypes.WorkflowInstanceStateChanged, onWfState as any)
   emitter.on(WorkflowEventTypes.WorkflowInstanceStatusChanged, onWfStatus as any)
   emitter.on(WorkflowEventTypes.WorkflowInstanceCompleted, onWfDone as any)
@@ -345,15 +352,15 @@ export async function onSocketConnected(tenantId: string, agent: Agent) {
 
   const detach = () => {
     try {
-      emitter.off(BasicMessageEventTypes.BasicMessageStateChanged, onBasic)
-      emitter.off(CredentialEventTypes.CredentialStateChanged, onCred)
-      emitter.off(ProofEventTypes.ProofStateChanged, onProof)
+      emitter.off(DidCommBasicMessageEventTypes.DidCommBasicMessageStateChanged, onBasic)
+      emitter.off(DidCommCredentialEventTypes.DidCommCredentialStateChanged, onCred)
+      emitter.off(DidCommProofEventTypes.ProofStateChanged, onProof)
       emitter.off(WorkflowEventTypes.WorkflowInstanceStateChanged, onWfState as any)
       emitter.off(WorkflowEventTypes.WorkflowInstanceStatusChanged, onWfStatus as any)
       emitter.off(WorkflowEventTypes.WorkflowInstanceCompleted, onWfDone as any)
       emitter.off(SigningEventTypes.SigningStateChanged, onSigning as any)
       emitter.off(RepositoryEventTypes.RecordSaved, onRepoSaved as any)
-      try { emitter.off(AgentEventTypes.AgentMessageReceived, onAgentRecv as any) } catch {}
+      try { emitter.off(DidCommEventTypes.DidCommMessageReceived, onAgentRecv as any) } catch {}
       try { emitter.off(WebRTCEvents.IncomingOffer as any, onRtcOffer as any) } catch {}
       try { emitter.off(WebRTCEvents.IncomingAnswer as any, onRtcAnswer as any) } catch {}
       try { emitter.off(WebRTCEvents.IncomingIce as any, onRtcIce as any) } catch {}

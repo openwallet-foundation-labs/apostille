@@ -1,20 +1,17 @@
 // Typed notification primitives for WS-only delivery
 
-import { BasicMessageEventTypes } from '@credo-ts/core'
-import { CredentialEventTypes } from '@credo-ts/core'
-import { ProofEventTypes } from '@credo-ts/core'
-import { AgentEventTypes } from '@credo-ts/core'
-import { WorkflowEventTypes } from '@ajna-inc/workflow/build/WorkflowEvents'
+import { DidCommBasicMessageEventTypes, DidCommCredentialEventTypes, DidCommEventTypes, DidCommProofEventTypes } from '@credo-ts/didcomm'
+import { WorkflowEventTypes } from '@ajna-inc/workflow'
 import { SigningEventTypes } from '@ajna-inc/signing'
 
 export type NotificationType =
   | 'AppMessageReceived'
   | 'AppMessageSent'
-  | typeof AgentEventTypes.AgentMessageReceived
-  | typeof AgentEventTypes.AgentMessageProcessed
-  | typeof BasicMessageEventTypes.BasicMessageStateChanged
-  | typeof CredentialEventTypes.CredentialStateChanged
-  | typeof ProofEventTypes.ProofStateChanged
+  | typeof DidCommEventTypes.DidCommMessageReceived
+  | typeof DidCommEventTypes.DidCommMessageProcessed
+  | typeof DidCommBasicMessageEventTypes.DidCommBasicMessageStateChanged
+  | typeof DidCommCredentialEventTypes.DidCommCredentialStateChanged
+  | typeof DidCommProofEventTypes.ProofStateChanged
   | WorkflowEventTypes.WorkflowInstanceStateChanged
   | WorkflowEventTypes.WorkflowInstanceStatusChanged
   | WorkflowEventTypes.WorkflowInstanceCompleted
@@ -34,11 +31,11 @@ export type NotificationType =
 export const NOTIFICATION_TYPES = [
   'AppMessageReceived',
   'AppMessageSent',
-  AgentEventTypes.AgentMessageReceived,
-  AgentEventTypes.AgentMessageProcessed,
-  BasicMessageEventTypes.BasicMessageStateChanged,
-  CredentialEventTypes.CredentialStateChanged,
-  ProofEventTypes.ProofStateChanged,
+  DidCommEventTypes.DidCommMessageReceived,
+  DidCommEventTypes.DidCommMessageProcessed,
+  DidCommBasicMessageEventTypes.DidCommBasicMessageStateChanged,
+  DidCommCredentialEventTypes.DidCommCredentialStateChanged,
+  DidCommProofEventTypes.ProofStateChanged,
   WorkflowEventTypes.WorkflowInstanceStateChanged,
   WorkflowEventTypes.WorkflowInstanceStatusChanged,
   WorkflowEventTypes.WorkflowInstanceCompleted,

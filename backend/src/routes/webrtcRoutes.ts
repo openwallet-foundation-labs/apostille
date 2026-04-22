@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { getAgent } from '../services/agentService'
+import crypto from 'crypto'
 
 const router = Router()
 
@@ -9,17 +10,51 @@ function getTenantId(req: Request) {
   return (req as any)?.user?.tenantId as string | undefined
 }
 
+function getIceServers(tenantId?: string) {
+  const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = []
+
+  // Always add public STUN servers (no auth needed)
+  iceServers.push({ urls: 'stun:stun.l.google.com:19302' })
+  iceServers.push({ urls: 'stun:stun1.l.google.com:19302' })
+
+  const urls = process.env.WEBRTC_STUN_URLS || ''
+  const turnSecret = process.env.WEBRTC_TURN_AUTH_SECRET
+  const ttlSeconds = Number(process.env.WEBRTC_TURN_CRED_TTL_SECONDS || '3600')
+
+  let username: string | undefined
+  let credential: string | undefined
+
+  if (turnSecret) {
+    const now = Math.floor(Date.now() / 1000)
+    const expires = now + Math.max(60, ttlSeconds)
+    const userId = tenantId || 'anon'
+    username = `${expires}:${userId}`
+    credential = crypto.createHmac('sha1', turnSecret).update(username).digest('base64')
+  }
+
+  for (const url of urls.split(',').map((u) => u.trim()).filter(Boolean)) {
+    if (url.startsWith('turn:') || url.startsWith('turns:')) {
+      if (username && credential) {
+        iceServers.push({ urls: url, username, credential })
+      }
+    } else if (url.startsWith('stun:')) {
+      iceServers.push({ urls: url })
+    }
+  }
+
+  return iceServers
+}
+
 // Start call (offer)
 router.post('/start', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId(req)
-    const { connectionId, threadId, parentThreadId, roomId, sdp, iceServers } = req.body as {
+    const { connectionId, threadId, parentThreadId, roomId, sdp } = req.body as {
       connectionId: string
       threadId: string
       parentThreadId?: string
       roomId?: string
       sdp: string
-      iceServers?: Array<{ urls: string | string[]; username?: string; credential?: string }>
     }
 
     if (!tenantId) return res.status(401).json({ success: false, message: 'Unauthorized' })
@@ -29,6 +64,7 @@ router.post('/start', async (req: Request, res: Response) => {
 
     const agent = await getAgent({ tenantId })
     const pthid = parentThreadId || roomId || undefined
+    const iceServers = getIceServers(tenantId)
     await agent.modules.webrtc.startCall({
       connectionId,
       threadId,

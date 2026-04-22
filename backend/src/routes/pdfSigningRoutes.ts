@@ -1,9 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getAgent } from '../services/agentService';
 import { PdfUtils, SignaturePlaceholderOptions } from '@ajna-inc/signing';
-import { VaultRepository } from '@ajna-inc/vaults/build/repository/VaultRepository';
-import { VaultRecord } from '@ajna-inc/vaults/build/repository/VaultRecord';
-import { VaultEncryptionService, generateUuid, toBase64Url } from '@ajna-inc/vaults/build';
+import { VaultRepository, VaultRecord, VaultEncryptionService, generateUuid, toBase64Url } from '@ajna-inc/vaults';
 import multer from 'multer';
 import * as crypto from 'crypto';
 
@@ -108,7 +106,7 @@ const sendOwnerAckToSigner = async (
     let lastErr: any = null;
     for (const connectionId of candidateIds) {
       try {
-        await agent.basicMessages.sendMessage(connectionId, JSON.stringify(payload));
+        await agent.didcomm.basicMessages.sendMessage(connectionId, JSON.stringify(payload));
         return;
       } catch (err: any) {
         lastErr = err;
@@ -130,7 +128,7 @@ const sendPdfSigningNotice = async (
 ) => {
   try {
     if (!connectionId) return;
-    await agent.basicMessages.sendMessage(connectionId, JSON.stringify(payload));
+    await agent.didcomm.basicMessages.sendMessage(connectionId, JSON.stringify(payload));
   } catch (error: any) {
     console.warn('[PDF-Signing] Failed to send notice:', error?.message || error);
   }
@@ -204,7 +202,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 
     // Validate all connections exist and have KEM keys
     for (const connId of recipientConnectionIds) {
-      const connection = await agent.connections.findById(connId);
+      const connection = await agent.didcomm.connections.findById(connId);
       if (!connection) {
         return res.status(404).json({
           error: 'Connection not found',
@@ -1016,7 +1014,7 @@ router.get('/status', async (req: Request, res: Response) => {
     };
 
     // Get all user's connections to determine role
-    const connections = await agent.connections.getAll();
+    const connections = await agent.didcomm.connections.getAll();
     const myConnectionIds = new Set(connections.map((c: any) => c.id));
     console.log('[PDF-Signing] User has connections:', myConnectionIds.size);
 

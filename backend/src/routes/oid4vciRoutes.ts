@@ -6,13 +6,15 @@ import crypto from 'crypto'
 import { buildMdocNamespaces, MDL_DOCTYPE } from '../utils/mdlUtils'
 import { StateStore } from '../services/redis/stateStore'
 import { cacheStores } from '../services/redis/cacheStore'
-import { getMdocCertificateConfig, getIssuerCertificateForSigning } from '../config/mdlCertificates'
-import { KeyType, getJwkFromJson } from '@credo-ts/core'
+import { getMdocCertificateConfig, getIssuerCertificate, pemToBase64Der } from '../config/mdlCertificates'
+import { Kms, Mdoc } from '@credo-ts/core'
+import { transformPrivateKeyToPrivateJwk } from '@credo-ts/askar'
 
 const router = Router()
 
 // Base URL for OpenID4VC
 const apiBaseUrl = process.env.API_URL || process.env.PUBLIC_URL || 'http://localhost:3002'
+const SD_JWT_ISSUER_DID_METHOD = (process.env.SD_JWT_ISSUER_DID_METHOD || 'key').toLowerCase()
 
 // Pending offer structure for OID4VCI flow
 interface PendingOffer {
@@ -30,6 +32,42 @@ interface PendingOffer {
   doctype?: string  // For mdoc: e.g., 'org.iso.18013.5.1.mDL'
   createdAt: string  // ISO string for serialization
   expiresAt: string  // ISO string for serialization
+}
+
+async function getOrCreateSdJwtIssuerDid(agent: any): Promise<{ did: string; vmId: string }> {
+  if (SD_JWT_ISSUER_DID_METHOD !== 'key') {
+    throw new Error(`Unsupported SD_JWT_ISSUER_DID_METHOD: ${SD_JWT_ISSUER_DID_METHOD}`)
+  }
+
+  const created = await agent.dids.getCreatedDids({})
+  const existing = created.find((d: any) => typeof d.did === 'string' && d.did.startsWith('did:key:'))
+  if (existing?.did) {
+    const did: string = existing.did
+    // For did:key, the VM fragment equals the key identifier (everything after 'did:key:')
+    const keyFragment = did.replace('did:key:', '')
+    return { did, vmId: `${did}#${keyFragment}` }
+  }
+
+  const didResult = await agent.dids.create({
+    method: 'key',
+    options: {
+      createKey: {
+        type: {
+          kty: 'OKP',
+          crv: 'Ed25519',
+        },
+      },
+    },
+  })
+
+  if (didResult.didState.state !== 'finished' || !didResult.didState.did) {
+    const reason = (didResult.didState as any).reason || 'unknown error'
+    throw new Error(`Failed to create did:key for SD-JWT issuer: ${reason}`)
+  }
+
+  const did: string = didResult.didState.did
+  const keyFragment = did.replace('did:key:', '')
+  return { did, vmId: `${did}#${keyFragment}` }
 }
 
 // Distributed state store for pending offers (Redis with in-memory fallback)
@@ -477,8 +515,6 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
     }
 
     // Build the SD-JWT VC credential
-    const hostname = new URL(apiBaseUrl).hostname
-    const issuerDid = `did:web:${hostname}:issuers:${tenantId}`
     const issuanceDate = new Date().toISOString()
 
     // Extract holder binding from proof (did:jwk or did:key)
@@ -516,26 +552,32 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         // Build namespaces from credential data
         const namespaces = buildMdocNamespaces(offer.credentialData, mdocDoctype)
 
-        // Import required classes from credo-ts
-        const { Mdoc, KeyType } = await import('@credo-ts/core')
-
         // Get the IACA-signed issuer certificate from mdlCertificates config
         // This certificate is signed by the IACA root CA, which wallets trust
         const certConfig = await getMdocCertificateConfig()
-        const issuerCertificateBase64 = await getIssuerCertificateForSigning()
+        const issuerCertificate = await getIssuerCertificate()
+        const issuerCertificateBase64 = pemToBase64Der(certConfig.issuerCertificate)
         console.log('[MDL] Using IACA-signed issuer certificate')
 
         // Import the issuer private key into the wallet for signing
         // The key is imported fresh each time but uses the same key material
-        const issuerKey = await agent.context.wallet.createKey({
-          keyType: KeyType.P256,
-          privateKey: new Uint8Array(certConfig.issuerPrivateKeyBytes) as any,
+        const { privateJwk } = transformPrivateKeyToPrivateJwk({
+          type: {
+            kty: 'EC',
+            crv: 'P-256',
+          },
+          privateKey: new Uint8Array(certConfig.issuerPrivateKeyBytes),
         })
-        console.log('[MDL] Issuer key imported, fingerprint:', issuerKey.fingerprint)
+        const { keyId: issuerKeyId, publicJwk: issuerPublicJwk } = await agent.kms.importKey({
+          privateJwk,
+        })
+        const issuerPublicJwkInstance = Kms.PublicJwk.fromPublicJwk(issuerPublicJwk)
+        issuerCertificate.keyId = issuerKeyId
+        console.log('[MDL] Issuer key imported, keyId:', issuerKeyId)
 
         // Cache the certificate info in Redis for the /trusted-certificates endpoint
         await cacheStores.issuerCertificates.set(tenantId, {
-          issuerKey: { fingerprint: issuerKey.fingerprint },
+          issuerKey: { keyId: issuerKeyId, fingerprint: issuerPublicJwkInstance.legacyKeyId },
           issuerCertificate: null,
           certificateBase64: issuerCertificateBase64,
           iacaCertificateBase64: certConfig.iacaCertificate
@@ -547,7 +589,7 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         // Extract holder public key from proof JWT for device binding
         // The holder's JWK in the proof header represents their device key
         console.log('[MDL] Processing holder key for device binding...')
-        let holderKey: any
+        let holderKey: Kms.PublicJwk | undefined
         let holderJwk: any = null
 
         if (proof?.jwt) {
@@ -558,14 +600,8 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
               holderJwk = header.jwk
               console.log('[MDL] Holder JWK found in proof:', JSON.stringify(holderJwk))
 
-              // For mdoc device binding, we need a Key object
-              // Create a key from the holder's public JWK
-              const jwk = getJwkFromJson(holderJwk)
-              // Import the public key into the wallet for signing
-              holderKey = await agent.context.wallet.createKey({
-                keyType: jwk.keyType,
-              })
-              console.log('[MDL] Created holder key for binding, keyType:', jwk.keyType)
+              holderKey = Kms.PublicJwk.fromUnknown(holderJwk)
+              console.log('[MDL] Created holder key for binding')
             }
           } catch (jwkError: any) {
             console.warn('[MDL] Failed to process holder JWK from proof:', jwkError.message)
@@ -575,9 +611,13 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         // If no JWK in proof, create a new holder key (wallet-side binding)
         if (!holderKey) {
           console.log('[MDL] No holder JWK in proof, creating server-side device key...')
-          holderKey = await agent.context.wallet.createKey({
-            keyType: KeyType.P256
+          const { publicJwk } = await agent.kms.createKey({
+            type: {
+              kty: 'EC',
+              crv: 'P-256',
+            },
           })
+          holderKey = Kms.PublicJwk.fromPublicJwk(publicJwk)
         }
 
         // Sign the mdoc using Credo-TS Mdoc.sign()
@@ -590,7 +630,7 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
           docType: mdocDoctype,
           namespaces,
           holderKey,
-          issuerCertificate: issuerCertificateBase64,
+          issuerCertificate,
           validityInfo: {
             signed: now,
             validFrom: now,
@@ -631,16 +671,10 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
     // Handle SD-JWT VC format - Sign using Credo's SdJwtVcModule
     try {
       const agent = await getAgent({ tenantId })
-
-      // Ensure the issuer key binding exists
-      const vmId = `${issuerDid}#key-0`
-      const openbadgesApi = (agent.modules as any).openbadges
-      if (openbadgesApi) {
-        await openbadgesApi.ensureBinding(issuerDid, vmId)
-        console.log(`[SD-JWT] Ensured key binding for ${vmId}`)
-      } else {
-        console.warn('[SD-JWT] OpenBadges module not available, key may not exist')
-      }
+      // did:key DIDs are created and managed by Credo's DID repository directly —
+      // no ensureBinding needed; Credo resolves the key from the created DID record.
+      const { did: issuerDid, vmId } = await getOrCreateSdJwtIssuerDid(agent)
+      console.log(`[SD-JWT] Using issuer DID: ${issuerDid}, vmId: ${vmId}`)
 
       // Build credential claims from schema attributes and provided data
       const credentialClaims: Record<string, any> = {}

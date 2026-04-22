@@ -17,7 +17,7 @@ import {
 } from "@credo-ts/anoncreds";
 import { anoncreds } from '@hyperledger/anoncreds-shared'
 
-import { AgentContext, DidRepository } from "@credo-ts/core";
+import { AgentContext, DidRepository, utils } from "@credo-ts/core";
 import {
   parsekanonDid,
 } from "../../utils/identifiers";
@@ -26,7 +26,6 @@ import {
   KanonCreateResourceOptions,
   KanonDIDRegistrar,
 } from "../../dids/KanonDidRegistrar";
-import { uuid } from "@credo-ts/core/build/utils/uuid";
 import { EthereumLedgerService } from "../../ledger";
 
 export class KanonAnonCredsRegistry implements AnonCredsRegistry {
@@ -92,7 +91,7 @@ export class KanonAnonCredsRegistry implements AnonCredsRegistry {
         agentContext.dependencyManager.resolve(KanonDIDRegistrar);
       const schema = options.schema;
       const schemaResource = {
-        id: uuid(),
+        id: utils.uuid(),
         name: `${schema.name}-Schema`,
         resourceType: "anonCredsSchema",
         data: {
@@ -232,7 +231,7 @@ export class KanonAnonCredsRegistry implements AnonCredsRegistry {
     const overlay = options.overlay || options.options?.overlay;
 
     const credentialDefinitionResource = {
-      id: uuid(),
+      id: utils.uuid(),
       name: `${credentialDefinition.tag}-CredentialDefinition`,
       resourceType: "anonCredsCredentialDefinition",
       data: {
@@ -252,7 +251,7 @@ export class KanonAnonCredsRegistry implements AnonCredsRegistry {
       // @ts-ignore 
       network: options.network,
       issuerId: credentialDefinition.issuerId,
-      version: uuid(),
+      version: utils.uuid(),
     } as KanonCreateResourceOptions;
     console.log(credentialDefinitionResource, "credentialDefinitionResource");
     const response = await kanonDisRegistrar.createCredentialDefinition(

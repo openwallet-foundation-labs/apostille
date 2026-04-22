@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { auth } from '../../middleware/authMiddleware'
 import { getAgent } from '../../services/agentService'
-import { WorkflowService, WorkflowTemplateRepository } from '@ajna-inc/workflow/build'
+import { WorkflowService, WorkflowTemplateRepository } from '@ajna-inc/workflow'
 
 const router = Router()
 

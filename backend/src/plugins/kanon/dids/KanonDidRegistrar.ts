@@ -1,4 +1,3 @@
-import {  VerificationMethods } from "@cheqd/sdk";
 import { EthereumLedgerService } from "../ledger";
 import {
   AgentContext,
@@ -14,12 +13,15 @@ import {
   DidUpdateOptions,
   DidUpdateResult,
   injectable,
-  KeyType,
+  Kms,
+  TypedArrayEncoder,
+  utils,
 } from "@credo-ts/core";
-import { uuid } from "@credo-ts/core/build/utils/uuid";
 import { id } from "ethers";
 import { AnonCredsCredentialDefinitionRepository } from "@credo-ts/anoncreds";
 import { AnonCredsRegistryService, AnonCredsSchemaRepository } from "@credo-ts/anoncreds";
+
+type VerificationMethods = string;
 
 @injectable()
 export class KanonDIDRegistrar implements DidRegistrar {
@@ -44,9 +46,16 @@ export class KanonDIDRegistrar implements DidRegistrar {
       throw new Error("Network is required");
     }
 
-    const key = await agentContext.wallet.createKey({ keyType: KeyType.Ed25519 });
-    console.log(key, "key");
-    const publicKeyBase58 = key.publicKeyBase58;
+    const kms = agentContext.dependencyManager.resolve(Kms.KeyManagementApi);
+    const { keyId, publicJwk } = await kms.createKey({
+      type: {
+        kty: "OKP",
+        crv: "Ed25519",
+      },
+    });
+    console.log({ keyId }, "key");
+    const publicJwkInstance = Kms.PublicJwk.fromPublicJwk(publicJwk);
+    const publicKeyBase58 = TypedArrayEncoder.toBase58(publicJwkInstance.publicKey.publicKey);
     console.log(publicKeyBase58, "publicKeyBase58");
     try {
       let didStr = "";
@@ -78,7 +87,7 @@ export class KanonDIDRegistrar implements DidRegistrar {
       if (options.did) {
         didStr = options.did;
       } else {
-        didStr = `did:kanon:${options.network}:${uuid()}`;
+        didStr = `did:kanon:${options.network}:${utils.uuid()}`;
       }
       const didDocumentjson = JSON.stringify(didDocument);
       console.log(didDocumentjson, didStr);
@@ -94,6 +103,12 @@ export class KanonDIDRegistrar implements DidRegistrar {
         did: didStr,
         role: DidDocumentRole.Created,
         didDocument: didDocument,
+        keys: [
+          {
+            kmsKeyId: keyId,
+            didDocumentRelativeKeyId: "#key-1",
+          },
+        ],
         tags: {
           network: options.network,
           role: DidDocumentRole.Created,

@@ -34,9 +34,9 @@ export const metadata: Metadata = {
   title: process.env.NEXT_PUBLIC_APPLICATION_TITLE,
   description: process.env.NEXT_PUBLIC_APPLICATION_DESCRIPTION,
   keywords: ["credentials", "blockchain", "security", "identity"],
-  authors: [{ name: "Apostille Team" }],
-  creator: "Apostille",
-  publisher: "Apostille",
+  authors: [{ name: `${process.env.NEXT_PUBLIC_COMPANY_NAME} Team` }],
+  creator: process.env.NEXT_PUBLIC_COMPANY_NAME,
+  publisher: process.env.NEXT_PUBLIC_COMPANY_NAME,
   formatDetection: {
     email: false,
     address: false,
@@ -44,14 +44,14 @@ export const metadata: Metadata = {
   },
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'),
   openGraph: {
-    title: "Apostille",
+    title: process.env.NEXT_PUBLIC_COMPANY_NAME,
     description: "A modern, secure credential management platform",
     type: "website",
     locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Apostille",
+    title: process.env.NEXT_PUBLIC_COMPANY_NAME,
     description: "A modern, secure credential management platform",
   },
 };

@@ -138,7 +138,7 @@ const navItems = [
 ];
 
 // Get environment variables with defaults
-const COMPANY_NAME = process.env.NEXT_PUBLIC_COMPANY_NAME || 'Apostille';
+const COMPANY_NAME = process.env.NEXT_PUBLIC_COMPANY_NAME || 'Apless';
 const COMPANY_LOGO_URL = process.env.NEXT_PUBLIC_COMPANY_LOGO_URL || 'A';
 
 export default function ClientLayout({ children }: ClientLayoutProps) {

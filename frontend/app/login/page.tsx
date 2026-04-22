@@ -49,7 +49,7 @@ export default function LoginPage() {
             Welcome back
           </h2>
           <p className="text-text-secondary">
-            Sign in to your Apostille account
+            Sign in to your {process.env.NEXT_PUBLIC_COMPANY_NAME} account
           </p>
         </div>
 
@@ -64,7 +64,7 @@ export default function LoginPage() {
           )}
           
           {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} method="post" className="space-y-6">
             <div className="space-y-4">
               {/* Email Field */}
               <div>

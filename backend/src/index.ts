@@ -5,7 +5,7 @@ import cors from 'cors';
 import type { CorsOptions } from 'cors';
 import dotenv from 'dotenv';
 import { createHmac, randomUUID } from 'crypto';
-import { initializeAgentSystem } from './services/agentService';
+import { initializeAgentSystem, clearTenantAgentCache } from './services/agentService';
 import { userTable, passwordResetTokensTable, initializeCredentialDesignerTables, initializeOid4vcTables, initializeInstitutionalTables } from './db/schema';
 import agentRoutes from './routes/agentRoutes';
 import connectionRoutes from './routes/connectionRoutes';
@@ -24,7 +24,7 @@ import signingRoutes from './routes/signingRoutes';
 import vaultRoutes from './routes/vaultRoutes';
 import pdfSigningRoutes from './routes/pdfSigningRoutes';
 import webrtcRoutes from './routes/webrtcRoutes';
-import groupRoutes from './routes/groupRoutes';
+// import groupRoutes from './routes/groupRoutes'; // Disabled: group-messaging package not available for Credo 0.6.x
 import poeRoutes from './routes/poeRoutes';
 import { createSocketGateway } from './services/socketGateway';
 import wellKnownRoutes, { createIssuerRoutes } from './routes/wellKnownRoutes';
@@ -196,8 +196,8 @@ app.use('/api/vaults', vaultRoutes);
 app.use('/api/pdf-signing', auth);
 app.use('/api/pdf-signing', pdfSigningRoutes);
 
-app.use('/api/groups', auth);
-app.use('/api/groups', groupRoutes);
+// app.use('/api/groups', auth);
+// app.use('/api/groups', groupRoutes);
 
 // OpenBadges API - verification is public, issuance requires auth
 // POST /api/openbadges/credentials/verify is PUBLIC (for external verifiers)
@@ -253,7 +253,8 @@ app.get('/api/webrtc/turn', async (req: Request, res: Response) => {
     res.status(500).json({ success: false, message: e?.message || 'Internal error' })
   }
 })
-// All other webrtc routes require auth
+
+// All webrtc routes require auth
 app.use('/api/webrtc', auth);
 app.use('/api/webrtc', webrtcRoutes);
 
@@ -278,9 +279,33 @@ app.use('/api/oid4vp', oid4vpRoutes);
 // /issuers/:tenantId/response - public endpoint for wallet presentation submission
 app.use('/issuers', oid4vpRoutes);
 
+const STALE_SESSION_PATTERNS = [
+  'failed to acquire an agent context session',
+  'wallet is closed',
+  'wallet has been closed',
+  'database is closed',
+  'connection was closed',
+  'askarerror',
+  'walleterror',
+  'is not open',
+];
+
 // Error handler middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error('Unhandled error:', err);
+
+  // Auto-evict stale Askar session cache so the next request opens a fresh session.
+  // This is the main cause of "slows down after idle / stops after error" post-0.6.1.
+  const msg = (err.message ?? '').toLowerCase();
+  const isStale = STALE_SESSION_PATTERNS.some(p => msg.includes(p));
+  if (isStale) {
+    const tenantId = (req as any).user?.tenantId;
+    if (tenantId) {
+      console.warn(`[Recovery] Stale session for tenant ${tenantId}, evicting cache`);
+      clearTenantAgentCache(tenantId);
+    }
+  }
+
   // Reflect proper CORS headers on error responses
   const origin = req.headers.origin as string | undefined;
   if (!origin || isAllowedOrigin(origin)) {
@@ -291,7 +316,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] as string || 'Content-Type, Authorization, X-Requested-With, Origin, Accept');
-  
+
   res.status(500).json({
     success: false,
     message: 'Internal server error',
@@ -348,7 +373,7 @@ const startServer = async () => {
     // Initialize agent system after server starts (non-blocking)
     console.log('Initializing agent system...');
     try {
-      await initializeAgentSystem();
+      await initializeAgentSystem(app);
       console.log('Agent system initialized successfully');
 
       // Initialize ESSI default agent for institutional credential issuance

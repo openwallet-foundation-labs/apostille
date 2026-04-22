@@ -10,6 +10,7 @@ import * as path from 'path'
 import * as crypto from 'crypto'
 import * as x509 from '@peculiar/x509'
 import { cacheStores } from '../services/redis/cacheStore'
+import { X509Certificate } from '@credo-ts/core'
 
 // Set crypto provider for @peculiar/x509
 x509.cryptoProvider.set(crypto.webcrypto as any)
@@ -398,9 +399,9 @@ export function pemToBase64Der(pemCertificate: string): string {
  * Get issuer certificate in the format expected by Credo-TS Mdoc.sign()
  * Returns base64-encoded DER format
  */
-export async function getIssuerCertificateForSigning(): Promise<string> {
+export async function getIssuerCertificate(): Promise<X509Certificate> {
   const config = await getMdocCertificateConfig()
-  return pemToBase64Der(config.issuerCertificate)
+  return X509Certificate.fromEncodedCertificate(config.issuerCertificate)
 }
 
 /**

@@ -30,7 +30,7 @@ function PaletteItem({ label, icon, description, color, onDragStart }: PaletteIt
         e.dataTransfer.effectAllowed = 'copy'
         onDragStart()
       }}
-      className="flex items-center gap-2 p-2 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 rounded cursor-grab active:cursor-grabbing transition-colors border border-border-secondary"
+      className="flex items-center gap-2 p-2 bg-surface-100 hover:bg-surface-200 rounded cursor-grab active:cursor-grabbing transition-colors border border-border-secondary"
       title={description}
     >
       <div
@@ -57,7 +57,7 @@ function CollapsibleSection({ title, defaultOpen = true, children }: Collapsible
     <div className="border-b border-border-secondary">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-surface-100 transition-colors"
       >
         {title}
         <svg
@@ -201,14 +201,14 @@ export function BuilderSidebar() {
   ]
 
   return (
-    <div className="w-72 shrink-0 bg-surface-50 dark:bg-surface-900 border-r border-border-secondary flex flex-col">
+    <div className="w-72 shrink-0 bg-surface-50 border-r border-border-secondary flex flex-col">
       {/* Tabs */}
       <div className="flex border-b border-border-secondary">
         <button
           onClick={() => setActiveTab('components')}
           className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
             activeTab === 'components'
-              ? 'text-primary-600 dark:text-primary-400 border-b-2 border-primary-600 dark:border-primary-400 bg-surface-100 dark:bg-surface-800'
+              ? 'text-primary-600 dark:text-primary-400 border-b-2 border-primary-600 dark:border-primary-400 bg-surface-100'
               : 'text-text-secondary hover:text-text-primary'
           }`}
         >
@@ -218,7 +218,7 @@ export function BuilderSidebar() {
           onClick={() => setActiveTab('credentials')}
           className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
             activeTab === 'credentials'
-              ? 'text-primary-600 dark:text-primary-400 border-b-2 border-primary-600 dark:border-primary-400 bg-surface-100 dark:bg-surface-800'
+              ? 'text-primary-600 dark:text-primary-400 border-b-2 border-primary-600 dark:border-primary-400 bg-surface-100'
               : 'text-text-secondary hover:text-text-primary'
           }`}
         >

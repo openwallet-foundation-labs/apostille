@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { WorkflowInstancePanel } from '@ajna-inc/workflow-react'
 import { WorkflowVisualizer } from '@/app/components/workflows/WorkflowVisualizer'
 
@@ -26,19 +26,23 @@ export function ActiveInstancePanel({
   loading = false,
 }: ActiveInstancePanelProps) {
   const [autoRefresh, setAutoRefresh] = useState(true)
-  const [lastRefresh, setLastRefresh] = useState(Date.now())
+
+  // Keep a stable ref to onRefresh so the interval never restarts due to prop reference changes
+  const onRefreshRef = useRef(onRefresh)
+  useEffect(() => {
+    onRefreshRef.current = onRefresh
+  })
 
   // Auto-refresh every 3 seconds when enabled
   useEffect(() => {
     if (!instanceId || !autoRefresh) return
 
-    const interval = setInterval(async () => {
-      await onRefresh()
-      setLastRefresh(Date.now())
+    const interval = setInterval(() => {
+      void onRefreshRef.current()
     }, 3000)
 
     return () => clearInterval(interval)
-  }, [instanceId, autoRefresh, onRefresh])
+  }, [instanceId, autoRefresh])
 
   // Empty state
   if (!instanceId) {
@@ -71,7 +75,7 @@ export function ActiveInstancePanel({
               onClick={() => setAutoRefresh(!autoRefresh)}
               className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full transition-colors ${
                 autoRefresh
-                  ? 'bg-emerald-100 text-emerald-700'
+                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
                   : 'bg-surface-200 text-text-tertiary'
               }`}
               title={autoRefresh ? 'Auto-refresh enabled' : 'Auto-refresh disabled'}
@@ -81,10 +85,7 @@ export function ActiveInstancePanel({
             </button>
 
             <button
-              onClick={async () => {
-                await onRefresh()
-                setLastRefresh(Date.now())
-              }}
+              onClick={() => { void onRefresh() }}
               disabled={loading}
               className="text-text-tertiary hover:text-text-primary p-1"
               title="Refresh now"

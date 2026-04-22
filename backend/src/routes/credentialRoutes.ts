@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getAgent } from '../services/agentService';
-import { CredentialExchangeRecord, AutoAcceptCredential } from '@credo-ts/core';
+import { DidCommAutoAcceptCredential, DidCommCredentialExchangeRecord } from '@credo-ts/didcomm';
 import { auth } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -22,11 +22,11 @@ router.route('/')
       }
 
       const agent = await getAgent({ tenantId });
-      const credentials = await agent.credentials.getAll();
+      const credentials = await agent.didcomm.credentials.getAll();
       
       res.status(200).json({
         success: true,
-        credentials: credentials.map((credential: CredentialExchangeRecord) => ({
+        credentials: credentials.map((credential: DidCommCredentialExchangeRecord) => ({
           id: credential.id,
           state: credential.state,
           createdAt: credential.createdAt,
@@ -96,7 +96,7 @@ router.route('/issue')
       const credDef = await agent.modules.anoncreds.getCreatedCredentialDefinitions({
         credentialDefinitionId
       });
-      const credentialRecord = await agent.credentials.offerCredential({
+      const credentialRecord = await agent.didcomm.credentials.offerCredential({
         connectionId,
         // @ts-ignore
         protocolVersion: 'v2',
@@ -107,7 +107,7 @@ router.route('/issue')
             attributes: credentialAttributes
           }  
         },
-        autoAcceptCredential: AutoAcceptCredential.Always
+        autoAcceptCredential: DidCommAutoAcceptCredential.Always
       });
       
       res.status(200).json({
@@ -147,7 +147,7 @@ router.route('/:credentialId')
       }
 
       const agent = await getAgent({ tenantId });
-      const credential = await agent.credentials.findById(credentialId);
+      const credential = await agent.didcomm.credentials.findById(credentialId);
       
       if (!credential) {
         res.status(404).json({

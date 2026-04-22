@@ -11,7 +11,7 @@ interface QRScannerProps {
 export default function QRScanner({ onScan, onError, onClose }: QRScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -29,7 +29,7 @@ export default function QRScanner({ onScan, onError, onClose }: QRScannerProps) 
 
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
-          setStream(mediaStream);
+          streamRef.current = mediaStream;
           setIsScanning(true);
         }
       } catch (err) {
@@ -100,9 +100,9 @@ export default function QRScanner({ onScan, onError, onClose }: QRScannerProps) 
 
   const stopScanning = () => {
     // Stop camera stream
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
     }
 
     // Clear scanning interval

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getAgent } from '../services/agentService';
 import { auth } from '../middleware/authMiddleware';
-import { DidExchangeState } from '@credo-ts/core';
+import { DidCommDidExchangeState } from '@credo-ts/didcomm';
 
 const router = Router();
 
@@ -47,20 +47,20 @@ router.route('/stats')
         const agent = await getAgent({ tenantId });
         
         // Get connections
-        const invitations = await agent.oob.getAll();
-        const pendingInvitations = invitations.filter(inv => inv.state !== 'done').length;
+        const invitations = await agent.didcomm.oob.getAll();
+        const pendingInvitations = invitations.filter((inv: { state?: string }) => inv.state !== 'done').length;
         
-        const connections = await agent.connections.getAll();
+        const connections = await agent.didcomm.connections.getAll();
         const totalConnections = connections.length;
-        const activeConnections = connections.filter(conn => {
-          return conn.state === DidExchangeState.Completed;
+        const activeConnections = connections.filter((conn: { state?: string }) => {
+          return conn.state === DidCommDidExchangeState.Completed;
         }).length;
         
         // Get credentials 
-        const credentials = await agent.credentials.getAll();
+        const credentials = await agent.didcomm.credentials.getAll();
         const totalCredentials = credentials.length;
-        const issuedCredentials = credentials.filter(cred => cred.state === 'done' && cred.role === 'issuer').length;
-        const receivedCredentials = credentials.filter(cred => cred.state === 'done' && cred.role === 'holder').length;
+        const issuedCredentials = credentials.filter((cred: { state?: string; role?: string }) => cred.state === 'done' && cred.role === 'issuer').length;
+        const receivedCredentials = credentials.filter((cred: { state?: string; role?: string }) => cred.state === 'done' && cred.role === 'holder').length;
 
         // Get DIDs
         const dids = await agent.dids.getCreatedDids({});

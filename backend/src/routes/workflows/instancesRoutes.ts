@@ -1,10 +1,30 @@
 import { Router, Request, Response } from 'express'
 import { auth } from '../../middleware/authMiddleware'
 import { getAgent } from '../../services/agentService'
-import { ConnectionService } from '@credo-ts/core'
-import { WorkflowInstanceRepository, WorkflowService, WorkflowTemplateRepository } from '@ajna-inc/workflow/build'
+import { WorkflowInstanceRepository, WorkflowService, WorkflowTemplateRepository } from '@ajna-inc/workflow'
 
 const router = Router()
+
+const getByPath = (obj: Record<string, unknown>, path?: string) => {
+  if (!path) return undefined
+  return path.split('.').reduce((acc: unknown, part) => {
+    if (acc === null || acc === undefined) return undefined
+    if (typeof acc !== 'object') return undefined
+    return (acc as Record<string, unknown>)[part]
+  }, obj as unknown)
+}
+
+const findMissingRequired = (context: Record<string, unknown>, plan: Record<string, any>) => {
+  const missing: Array<{ key: string; path?: string }> = []
+  for (const [key, spec] of Object.entries(plan || {})) {
+    if (!spec?.required) continue
+    const val = spec.source === 'context' ? getByPath(context, spec.path) : spec.source === 'static' ? spec.value : undefined
+    if (val === undefined || val === null || val === '') {
+      missing.push({ key, path: spec.path })
+    }
+  }
+  return missing
+}
 
 // Create/start a new instance
 router.post('/instances', auth, async (req: Request, res: Response) => {
@@ -23,14 +43,13 @@ router.post('/instances', auth, async (req: Request, res: Response) => {
 
     // Validate connection
     try {
-      const connectionSvc = agent.dependencyManager.resolve(ConnectionService)
-      await connectionSvc.getById(agent.context, connection_id)
+      await agent.didcomm.connections.getById(connection_id)
     } catch {
       return res.status(400).json({ success: false, code: 'invalid_connection', message: `connection not found or not owned by tenant: ${connection_id}` })
     }
 
     // Ensure template exists (exact version → latest → any)
-    const tplRepo = agent.dependencyManager.resolve(WorkflowTemplateRepository)
+    const tplRepo = agent.dependencyManager.resolve(WorkflowTemplateRepository) as WorkflowTemplateRepository
     let tplRec = await tplRepo.findByTemplateIdAndVersion(agent.context, template_id, template_version)
     if (!tplRec) {
       try {
@@ -103,20 +122,19 @@ router.get('/instances/:instanceId', auth, async (req: Request, res: Response) =
     // Auto-derive ui_profile based on holder DID match
     try {
       if (!ui_profile) {
-        const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
+        const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository) as WorkflowInstanceRepository
         const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
         const holderDid = (inst as any)?.participants?.holder?.did as string | undefined
         if (holderDid) {
-          const connSvc = agent.dependencyManager.resolve(ConnectionService)
           const connectionId = (inst as any)?.connectionId as string | undefined
-          const conn = connectionId ? await connSvc.getById(agent.context, connectionId) : undefined
+          const conn = connectionId ? await agent.didcomm.connections.getById(connectionId) : undefined
           const myDid = (conn as any)?.did as string | undefined
           ui_profile = myDid && holderDid === myDid ? 'receiver' : 'sender'
         }
       }
     } catch {}
 
-    const service = agent.dependencyManager.resolve(WorkflowService)
+    const service = agent.dependencyManager.resolve(WorkflowService) as WorkflowService
     const statusObj = await service.status(
       agent.context,
       {
@@ -133,7 +151,7 @@ router.get('/instances/:instanceId', auth, async (req: Request, res: Response) =
     )
     // Attach context for UI previews
     try {
-      const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
+      const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository) as WorkflowInstanceRepository
       const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
       const statusWithContext = { ...statusObj, context: inst?.context ?? {} }
       return res.status(200).json({ success: true, status: statusWithContext })
@@ -147,34 +165,33 @@ router.get('/instances/:instanceId', auth, async (req: Request, res: Response) =
 
 // Advance an instance
 router.post('/instances/:instanceId/advance', auth, async (req: Request, res: Response) => {
+  const instanceId = req.params.instanceId
+  const { event: triggerEvent, idempotency_key, input } = req.body || {}
   try {
     const tenantId = req.user?.tenantId
-    const { instanceId } = req.params
-    const { event, idempotency_key, input } = req.body || {}
     if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant ID missing from request context' })
     if (!instanceId || typeof instanceId !== 'string') return res.status(400).json({ success: false, message: 'instance_id is required' })
-    if (!event || typeof event !== 'string') return res.status(400).json({ success: false, message: 'event is required' })
+    if (!triggerEvent || typeof triggerEvent !== 'string') return res.status(400).json({ success: false, message: 'event is required' })
 
     const agent = await getAgent({ tenantId })
 
     // Prevent receiver from sending issuer-only actions
     try {
-      const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
+      const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository) as WorkflowInstanceRepository
       const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
       const holderDid = (inst as any)?.participants?.holder?.did as string | undefined
       const connectionId = (inst as any)?.connectionId as string | undefined
       if (holderDid && connectionId) {
-        const connSvc = agent.dependencyManager.resolve(ConnectionService)
-        const conn = await connSvc.getById(agent.context, connectionId)
+        const conn = await agent.didcomm.connections.getById(connectionId)
         const myDid = (conn as any)?.did as string | undefined
         const isReceiver = myDid && holderDid === myDid
-        if (isReceiver && event === 'send_offer') {
+        if (isReceiver && triggerEvent === 'send_offer') {
           return res.status(403).json({ success: false, code: 'forbidden', message: 'Receiver cannot send issuer-only action: send_offer' })
         }
       }
     } catch {}
 
-    const record = await agent.modules.workflow.advance({ instance_id: instanceId, event, idempotency_key, input })
+    const record = await agent.modules.workflow.advance({ instance_id: instanceId, event: triggerEvent, idempotency_key, input })
     return res.status(200).json({
       success: true,
       instance: {
@@ -192,8 +209,84 @@ router.post('/instances/:instanceId/advance', auth, async (req: Request, res: Re
   } catch (error) {
     const message = (error as Error).message || 'Failed to advance workflow instance'
     const code = (error as { code?: string }).code
+    let missingDetails:
+      | {
+          instanceId?: string
+          event?: string
+          state?: string
+          actionKey?: string
+          profileRef?: string
+          credentialDefinitionId?: string
+          missing?: Array<{ key: string; path?: string }>
+          required?: Array<{ key: string; source?: string; path?: string }>
+          contextKeys?: string[]
+        }
+      | undefined
+    if (message === 'missing_attributes' || code === 'missing_attributes' || code === 'action_error') {
+      try {
+        const tenantId = req.user?.tenantId
+        if (tenantId && instanceId) {
+          const agent = await getAgent({ tenantId })
+          const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository) as WorkflowInstanceRepository
+          const templateRepo = agent.dependencyManager.resolve(WorkflowTemplateRepository) as WorkflowTemplateRepository
+          const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
+          const ctx = ((inst as any)?.context as Record<string, unknown>) || {}
+          const tplRec = inst
+            ? await templateRepo.findByTemplateIdAndVersion(agent.context, inst.templateId, inst.templateVersion)
+            : null
+          const tpl = tplRec?.template as any
+          const transition = tpl?.transitions?.find((t: any) => t.from === inst?.state && t.on === triggerEvent)
+          const actionKey = transition?.action
+          const actionDef = actionKey ? tpl?.actions?.find((a: any) => a.key === actionKey) : null
+          let missing: Array<{ key: string; path?: string }> = []
+          let required: Array<{ key: string; source?: string; path?: string }> = []
+          let credDefId: string | undefined
+          if (actionDef?.profile_ref?.startsWith('cp.')) {
+            const profileId = actionDef.profile_ref.slice(3)
+            const profile = tpl?.catalog?.credential_profiles?.[profileId]
+            if (profile?.attribute_plan) {
+              missing = findMissingRequired(ctx, profile.attribute_plan)
+              required = Object.entries(profile.attribute_plan).flatMap(([key, spec]: any) =>
+                spec?.required ? [{ key, source: spec?.source, path: spec?.path }] : []
+              )
+            }
+            credDefId = profile?.credential_definition_id || profile?.credentialDefinitionId
+          }
+          console.error('[workflow][missing_attributes]', {
+            instanceId,
+            event: triggerEvent,
+            state: inst?.state,
+            actionKey,
+            profileRef: actionDef?.profile_ref,
+            credentialDefinitionId: credDefId,
+            missing,
+            required,
+            contextKeys: Object.keys(ctx),
+          })
+          missingDetails = {
+            instanceId,
+            event: triggerEvent,
+            state: inst?.state,
+            actionKey,
+            profileRef: actionDef?.profile_ref,
+            credentialDefinitionId: credDefId,
+            missing,
+            required,
+            contextKeys: Object.keys(ctx),
+          }
+          console.error('[workflow][missing_attributes][context]', ctx)
+        }
+      } catch (debugErr) {
+        console.error('[workflow][missing_attributes][debug_failed]', debugErr)
+      }
+    }
     const status = code === 'invalid_template' || code?.startsWith('invalid_') || code === 'forbidden' || code === 'guard_failed' ? 400 : code === 'state_conflict' || code === 'idempotency_conflict' ? 409 : 500
-    return res.status(status).json({ success: false, message, code })
+    return res.status(status).json({
+      success: false,
+      message,
+      code,
+      ...(missingDetails ? { missing: missingDetails } : {}),
+    })
   }
 })
 
@@ -208,7 +301,7 @@ router.post('/instances/:instanceId/manual', auth, async (req: Request, res: Res
     if (!event || typeof event !== 'string') return res.status(400).json({ success: false, message: 'event is required' })
 
     const agent = await getAgent({ tenantId })
-    const service = agent.dependencyManager.resolve(WorkflowService)
+    const service = agent.dependencyManager.resolve(WorkflowService) as WorkflowService
     const record = await service.advance(agent.context, { instance_id: instanceId, event, idempotency_key, input })
     return res.status(200).json({
       success: true,
@@ -239,7 +332,7 @@ router.get('/instances', auth, async (req: Request, res: Response) => {
     const connectionId = typeof req.query.connection_id === 'string' ? req.query.connection_id : undefined
     if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant ID missing from request context' })
     const agent = await getAgent({ tenantId })
-    const repo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
+    const repo = agent.dependencyManager.resolve(WorkflowInstanceRepository) as WorkflowInstanceRepository
     const records = connectionId ? await repo.findByConnection(agent.context, connectionId) : await repo.getAll(agent.context)
     return res.status(200).json({
       success: true,
@@ -269,7 +362,7 @@ router.get('/connections/:connectionId/instances', auth, async (req: Request, re
     if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant ID missing from request context' })
     if (!connectionId) return res.status(400).json({ success: false, message: 'connectionId is required' })
     const agent = await getAgent({ tenantId })
-    const repo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
+    const repo = agent.dependencyManager.resolve(WorkflowInstanceRepository) as WorkflowInstanceRepository
     const records = await repo.findByConnection(agent.context, connectionId)
     return res.status(200).json({
       success: true,
@@ -292,4 +385,3 @@ router.get('/connections/:connectionId/instances', auth, async (req: Request, re
 })
 
 export default router
-

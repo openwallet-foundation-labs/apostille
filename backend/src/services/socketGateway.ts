@@ -1,7 +1,7 @@
 import http from 'http'
 import url from 'url'
 import jwt from 'jsonwebtoken'
-import { Server as WsServer } from 'ws'
+import { WebSocketServer } from 'ws'
 import type WebSocket from 'ws'
 import { bus } from '../notifications/bus'
 import { setEnableRule } from '../notifications/registry'
@@ -12,7 +12,7 @@ import { jwtConfig } from '../config/jwt'
 type DecodedToken = { tenantId?: string; [k: string]: unknown }
 
 export class SocketGateway {
-  private wss: WsServer
+  private wss: WebSocketServer
   private readonly path: string
   private readonly pingInterval: number
   private heartbeat?: NodeJS.Timer
@@ -20,7 +20,7 @@ export class SocketGateway {
   constructor(opts?: { path?: string; pingIntervalMs?: number }) {
     this.path = opts?.path ?? '/ws'
     this.pingInterval = opts?.pingIntervalMs ?? 30000
-    this.wss = new WsServer({ noServer: true })
+    this.wss = new WebSocketServer({ noServer: true })
     this.wss.on('connection', (ws: WebSocket & { _tenantId?: string }, request) => {
       // Attach basic close handling
       ws.on('close', () => {

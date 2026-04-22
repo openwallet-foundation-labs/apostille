@@ -322,7 +322,7 @@ router.post('/rooms/join', async (req, res) => {
     const did = await getPrimaryDid(tenantId);
 
     // Validate that the connection exists and is active
-    const connection = await agent.connections.getById(connectionId);
+    const connection = await agent.didcomm.connections.getById(connectionId);
 
     if (!connection) {
       return res.status(400).json({

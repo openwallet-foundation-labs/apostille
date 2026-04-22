@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getAgent } from '../services/agentService';
-import { KeyType } from '@credo-ts/core';
+import { Kms } from '@credo-ts/core';
 import crypto from 'crypto';
 
 const router = Router();
@@ -383,19 +383,28 @@ router.post('/keys', async (req: Request, res: Response) => {
 
     console.log('Creating signing key for tenant:', tenantId);
 
-    // Create a new Ed25519 key in the wallet
-    const key = await agent.wallet.createKey({ keyType: KeyType.Ed25519 });
-    console.log('Key created with fingerprint:', key.fingerprint);
+    // Create a new Ed25519 key in the KMS
+    const { keyId, publicJwk } = await agent.kms.createKey({
+      type: {
+        kty: 'OKP',
+        crv: 'Ed25519',
+      },
+    });
+    const publicJwkInstance = Kms.PublicJwk.fromPublicJwk(publicJwk);
+    const fingerprint = publicJwkInstance.legacyKeyId;
+    console.log('Key created with fingerprint:', fingerprint);
 
     // Store the key fingerprint in metadata using tags
     const record = await agent.genericRecords.save({
       content: {
-        fingerprint: key.fingerprint,
-        keyType: key.keyType,
+        fingerprint,
+        keyId,
+        keyType: 'Ed25519',
       },
       tags: {
         type: 'SigningKey',
-        fingerprint: key.fingerprint,
+        fingerprint,
+        keyId,
       },
     });
     console.log('Record saved with ID:', record.id, 'tags:', record.getTags());
@@ -403,8 +412,9 @@ router.post('/keys', async (req: Request, res: Response) => {
     res.json({
       success: true,
       key: {
-        fingerprint: key.fingerprint,
-        keyType: key.keyType,
+        fingerprint,
+        keyId,
+        keyType: 'Ed25519',
         createdAt: record.createdAt,
       },
     });

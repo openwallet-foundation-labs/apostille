@@ -1,14 +1,42 @@
 import 'reflect-metadata';
-import { Agent, ConsoleLogger, LogLevel, DidsModule, HttpOutboundTransport, WsOutboundTransport, ConnectionsModule, CredentialsModule, AutoAcceptCredential, V2CredentialProtocol, ProofsModule, AutoAcceptProof, V2ProofProtocol, ConnectionEventTypes, DidExchangeState, InjectionSymbols, BasicMessageEventTypes, WebDidResolver } from '@credo-ts/core';
-import { VaultRepository } from '@ajna-inc/vaults/build/repository/VaultRepository';
-import { Protocol } from '@credo-ts/core/build/agent/models/features';
+import {
+    Agent,
+    ConsoleLogger,
+    LogLevel,
+    DidsModule,
+    InjectionSymbols,
+    WebDidResolver,
+    KeyDidResolver,
+    PeerDidResolver,
+    JwkDidResolver,
+    KeyDidRegistrar,
+    PeerDidRegistrar,
+    JwkDidRegistrar,
+    type DependencyManager,
+    type Module,
+} from '@credo-ts/core';
+import {
+    DidCommAutoAcceptCredential,
+    DidCommAutoAcceptProof,
+    DidCommBasicMessageEventTypes,
+    DidCommConnectionEventTypes,
+    DidCommCredentialV2Protocol,
+    DidCommDidExchangeState,
+    DidCommFeatureRegistry,
+    DidCommHttpOutboundTransport,
+    DidCommModule,
+    DidCommProofV2Protocol,
+    DidCommProtocol,
+    DidCommWsOutboundTransport,
+    type DidCommConnectionStateChangedEvent,
+} from '@credo-ts/didcomm';
+import { VaultRepository } from '@ajna-inc/vaults';
 // BasicMessageStateChangedEvent type used implicitly in KEM handler event typing
-import { agentDependencies, HttpInboundTransport, WsInboundTransport } from '@credo-ts/node';
-import { AskarModule } from '@credo-ts/askar';
-import { ariesAskar } from '@hyperledger/aries-askar-nodejs';
+import { agentDependencies, DidCommHttpInboundTransport, DidCommWsInboundTransport } from '@credo-ts/node';
+import { askar, askarNodeJS, registerAskar } from '@openwallet-foundation/askar-nodejs';
 import { TenantsModule } from '@credo-ts/tenants';
-import type { ConnectionStateChangedEvent, InitConfig } from '@credo-ts/core';
-import { AskarMultiWalletDatabaseScheme } from '@credo-ts/askar';
+import type { InitConfig } from '@credo-ts/core';
+import type { AskarMultiWalletDatabaseScheme } from '@credo-ts/askar';
 import { anoncreds } from '@hyperledger/anoncreds-nodejs'
 import { CheqdAnonCredsRegistry, CheqdDidRegistrar, CheqdDidResolver } from '@credo-ts/cheqd';
 import { KanonDIDResolver } from '../plugins/kanon/dids/KanonDidResolver';
@@ -18,19 +46,19 @@ import { EthereumLedgerService } from '../plugins/kanon/ledger';
 import { EthereumModule } from '../plugins/kanon/KanonModule';
 import { KanonAnonCredsRegistry } from '../plugins/kanon/anoncreds/services/KanonAnonCredsRegistry';
 import dotenv from 'dotenv';
-import type { AskarWalletPostgresStorageConfig } from '@credo-ts/askar/build/wallet'
+import type { AskarPostgresStorageConfig } from '@credo-ts/askar'
 
 import {
-    AnonCredsCredentialFormatService,
+    AnonCredsDidCommCredentialFormatService,
+    AnonCredsDidCommProofFormatService,
     AnonCredsModule,
-    AnonCredsProofFormatService,
 } from '@credo-ts/anoncreds'
-import { WorkflowModule, WorkflowCommandRepository, WorkflowInstanceRepository, WorkflowTemplateRepository, WorkflowService, CommandQueueService, PersistentCommandQueue } from '@ajna-inc/workflow/build'
+import { WorkflowModule, WorkflowCommandRepository, WorkflowInstanceRepository, WorkflowTemplateRepository, WorkflowService, CommandQueueService, PersistentCommandQueue, WorkflowModuleConfig } from '@ajna-inc/workflow'
 // import { registerWorkflowActionOverrides } from './workflowActions'
 import { WebRTCModule } from '@ajna-inc/webrtc'
 import { SigningModule } from '@ajna-inc/signing'
 import { VaultsModule } from '@ajna-inc/vaults'
-import { GroupMessagingModule } from '@ajna-inc/group-messaging'
+// import { GroupMessagingModule } from '@ajna-inc/group-messaging' // Disabled: group-messaging package not available for Credo 0.6.x
 import { PoeModule } from '@ajna-inc/poe'
 import { OpenBadgesModule } from '@ajna-inc/openbadges'
 import { OpenId4VcIssuerModule, OpenId4VcVerifierModule } from '@credo-ts/openid4vc'
@@ -38,8 +66,27 @@ import { getMockPoePrograms } from '../poe/MockPoeProgram'
 import { CacheStore } from './redis/cacheStore'
 import { initializeVaultStorage } from './storageService'
 import { isRedisAvailable, getRedisClient } from './redis/redisClient'
+import { StorageServiceMessageQueue } from '../plugins/storage/StorageMessageQueue'
+import { MessageRepository } from '../plugins/storage/MessageRepository'
+import type { Express } from 'express'
 
 dotenv.config();
+
+type AgentWithDidComm = Agent & { didcomm: any };
+
+const wrapLegacyModule = <T extends { register: (...args: any[]) => unknown }>(module: T): Module => {
+  const legacyRegister = module.register.bind(module);
+  (module as any).register = (dependencyManager: DependencyManager) => {
+    let featureRegistry: DidCommFeatureRegistry | undefined;
+    try {
+      featureRegistry = dependencyManager.resolve(DidCommFeatureRegistry);
+    } catch {
+      featureRegistry = undefined;
+    }
+    return legacyRegister(dependencyManager, featureRegistry);
+  };
+  return module as unknown as Module;
+};
 
 // Redis tracking for tenant activity (cross-pod visibility)
 const tenantActivityCache = new CacheStore<{ lastAccess: string; podId: string }>({
@@ -135,7 +182,7 @@ process.env.PGDATABASE = dbConfig.database;
 console.log('Set PostgreSQL environment variables for Askar wallet');
 
 // Try using DATABASE_URL directly with SSL parameters if available
-let postgresConfig: AskarWalletPostgresStorageConfig;
+let postgresConfig: AskarPostgresStorageConfig;
 
 // Use individual parameters for all configurations
 // The Askar wallet doesn't properly handle full connection strings
@@ -167,7 +214,7 @@ const AGENT_SESSION_TIMEOUT = process.env.AGENT_SESSION_TIMEOUT ? parseInt(proce
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-let mainAgent: Agent | null = null;
+let mainAgent: AgentWithDidComm | null = null;
 
 interface Tenant {
     id: string;
@@ -178,11 +225,17 @@ interface Tenant {
 // Pod-local cache for tenant agent instances
 // Note: This is intentionally pod-local. Agent instances cannot be shared across pods,
 // but their state is stored in PostgreSQL (Askar), so each pod getting its own instance is safe.
-const tenantAgentCache: Record<string, Agent<any>> = {};
+const tenantAgentCache: Record<string, AgentWithDidComm> = {};
+
+// In-flight initialization promises — prevents multiple concurrent getTenantAgent calls
+// for the same tenant (race condition on first activation).
+const tenantInitPending: Record<string, Promise<AgentWithDidComm> | undefined> = {};
 
 // Pod-local tracking for started queues (within this pod)
 // The Redis-backed coordination happens in ensureTenantWorkflowQueue
 const startedTenantQueues: Record<string, boolean> = {};
+
+let openId4VcApp: Express | null = null;
 
 // Redis-backed coordination for workflow queue startup across pods
 const workflowQueueCoordination = new CacheStore<{ podId: string; startedAt: string }>({
@@ -190,7 +243,7 @@ const workflowQueueCoordination = new CacheStore<{ podId: string; startedAt: str
     defaultTtlSeconds: 300, // 5 minutes - pods should refresh periodically
 });
 
-async function ensureTenantWorkflowQueue(tenantAgent: Agent<any>, tenantId: string) {
+async function ensureTenantWorkflowQueue(tenantAgent: AgentWithDidComm, tenantId: string) {
     if (startedTenantQueues[tenantId]) return;
     try {
         const dm: any = tenantAgent.dependencyManager as any;
@@ -209,7 +262,6 @@ async function ensureTenantWorkflowQueue(tenantAgent: Agent<any>, tenantId: stri
         // Try to read asyncQueue options from WorkflowModuleConfig if present
         let asyncQueueOpts: any = undefined;
         try {
-            const { WorkflowModuleConfig } = require('@ajna-inc/workflow/build');
             const cfg = tenantAgent.dependencyManager.resolve(WorkflowModuleConfig) as any;
             asyncQueueOpts = (cfg && (cfg as any).asyncQueue) || undefined;
         } catch {}
@@ -316,7 +368,15 @@ async function ensureTenantWorkflowQueue(tenantAgent: Agent<any>, tenantId: stri
     }
 }
 
-async function initializeAgent(walletId: string, walletKey: string, multiWalletDatabaseScheme?: AskarMultiWalletDatabaseScheme): Promise<Agent> {
+async function initializeAgent(
+    walletId: string,
+    walletKey: string,
+    multiWalletDatabaseScheme?: AskarMultiWalletDatabaseScheme
+): Promise<AgentWithDidComm> {
+    // Ensure Askar native bindings are registered before loading @credo-ts/askar
+    registerAskar({ askar: askarNodeJS });
+    const { AskarModule, AskarMultiWalletDatabaseScheme } = await import('@credo-ts/askar');
+
     // Test database connection first
     console.log('Testing database connection...');
     try {
@@ -333,15 +393,11 @@ async function initializeAgent(walletId: string, walletKey: string, multiWalletD
 
     const endpoints: string[] = [agentEndpoint];
     if (agentWsEndpoint) endpoints.push(agentWsEndpoint);
+    if (!openId4VcApp) {
+        throw new Error('OpenID4VC app not configured. Call initializeAgentSystem(app) before initializing agents.');
+    }
 
     const config: InitConfig = {
-        label: `CredoAgent-${walletId}`,
-        walletConfig: {
-            id: walletId,
-            key: walletKey,
-            storage: postgresConfig
-        },
-        endpoints,
         logger: new ConsoleLogger(LogLevel.info),
     };
     // Ethereum config - uses empty strings if not configured (POE features disabled)
@@ -368,35 +424,57 @@ async function initializeAgent(walletId: string, walletKey: string, multiWalletD
                 }),
                 // basicMessages: new BasicMessagesModule(),
                 askar: new AskarModule({
-                    ariesAskar: ariesAskar,
+                    askar: askar,
+                    store: {
+                        id: walletId,
+                        key: walletKey,
+                        database: postgresConfig,
+                    },
                     multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.DatabasePerWallet,
-
                 }),
                 dids: new DidsModule({
-                    resolvers: [new WebDidResolver(), new CheqdDidResolver(), new KanonDIDResolver(ledgerService)],
-                    registrars: [new CheqdDidRegistrar(), new KanonDIDRegistrar(ledgerService)],
-                }),
-                connections: new ConnectionsModule({
-                    autoAcceptConnections: true,
-                }),
-                proofs: new ProofsModule({
-                    autoAcceptProofs: AutoAcceptProof.Always,
-                    proofProtocols: [
-                        new V2ProofProtocol({
-                            proofFormats: [new AnonCredsProofFormatService()],
-                        }),
+                    resolvers: [
+                        new WebDidResolver(),
+                        new KeyDidResolver(),
+                        new PeerDidResolver(),
+                        new JwkDidResolver(),
+                        new CheqdDidResolver(),
+                        new KanonDIDResolver(ledgerService),
                     ],
+                    registrars: [
+                        new KeyDidRegistrar(),
+                        new PeerDidRegistrar(),
+                        new JwkDidRegistrar(),
+                        new CheqdDidRegistrar(),
+                        new KanonDIDRegistrar(ledgerService),
+                    ],
+                }),
+                didcomm: new DidCommModule({
+                    endpoints,
+                    queueTransportRepository: new StorageServiceMessageQueue(),
+                    connections: {
+                        autoAcceptConnections: true,
+                    },
+                    proofs: {
+                        autoAcceptProofs: DidCommAutoAcceptProof.Always,
+                        proofProtocols: [
+                            new DidCommProofV2Protocol({
+                                proofFormats: [new AnonCredsDidCommProofFormatService()],
+                            }),
+                        ],
+                    },
+                    credentials: {
+                        autoAcceptCredentials: DidCommAutoAcceptCredential.Always,
+                        credentialProtocols: [
+                            new DidCommCredentialV2Protocol({
+                                credentialFormats: [new AnonCredsDidCommCredentialFormatService()],
+                            }),
+                        ],
+                    },
+                    basicMessages: true,
+                    messagePickup: true,
                 }),
                 kanon: new EthereumModule(ethConfig),
-
-                credentials: new CredentialsModule({
-                    autoAcceptCredentials: AutoAcceptCredential.Always,
-                    credentialProtocols: [
-                        new V2CredentialProtocol({
-                            credentialFormats: [new AnonCredsCredentialFormatService()],
-                        }),
-                    ],
-                }),
 
                 // oob: new OutOfBandModule(),
                 anoncreds: new AnonCredsModule({
@@ -415,53 +493,53 @@ async function initializeAgent(walletId: string, walletKey: string, multiWalletD
                     discoveryTimeoutMs: 30000,
                 }),
 
-                signing: new SigningModule(),
+                signing: wrapLegacyModule(new SigningModule()),
 
-                vaults: new VaultsModule({
+                vaults: wrapLegacyModule(new VaultsModule({
                     operatorMode: true,  // Can store vaults for other agents
                     inlineThreshold: 5 * 1024 * 1024,  // 5MB - files larger use S3
-                }),
+                })),
 
-                groupMessaging: new GroupMessagingModule(),
-                webrtc: new WebRTCModule(),
-                poe: new PoeModule({
+                // groupMessaging: wrapLegacyModule(new GroupMessagingModule()),
+                webrtc: wrapLegacyModule(new WebRTCModule()),
+                poe: wrapLegacyModule(new PoeModule({
                     autoExecuteProofs: true,
                     persistNonces: true,
                     poePrograms: getMockPoePrograms(),
-                }),
-                openbadges: new OpenBadgesModule({
+                })),
+                openbadges: wrapLegacyModule(new OpenBadgesModule({
                     cryptosuite: 'eddsa-rdfc-2022',
-                }),
+                })),
                 // OpenID4VC Issuer Module for issuing credentials via OID4VCI
                 openId4VcIssuer: new OpenId4VcIssuerModule({
                     baseUrl: apiBaseUrl,
-                    endpoints: {
-                        credential: {
-                            credentialRequestToCredentialMapper: async ({
-                                agentContext,
-                                credentialRequest,
-                                holderBinding,
-                                credentialConfigurationIds,
-                            }) => {
-                                // This will be implemented in the routes - placeholder for now
-                                // The actual credential mapping logic is handled per-tenant in the routes
-                                throw new Error('Credential mapper should be overridden per issuance request');
-                            },
-                        },
+                    app: openId4VcApp!,
+                    credentialRequestToCredentialMapper: async ({
+                        agentContext,
+                        credentialRequest,
+                        holderBinding,
+                        credentialConfigurationId,
+                    }) => {
+                        // This will be implemented in the routes - placeholder for now
+                        // The actual credential mapping logic is handled per-tenant in the routes
+                        throw new Error('Credential mapper should be overridden per issuance request');
                     },
                 }),
                 // OpenID4VC Verifier Module for verifying credentials via OID4VP
                 openId4VcVerifier: new OpenId4VcVerifierModule({
                     baseUrl: apiBaseUrl,
+                    app: openId4VcApp!,
                 }),
             },
         });
 
-        // Enable DIDComm transports: HTTP outbound + WS outbound, HTTP inbound
-        agent.registerOutboundTransport(new HttpOutboundTransport());
-        agent.registerOutboundTransport(new WsOutboundTransport());
+        const didcomm = (agent as AgentWithDidComm).didcomm;
 
-        agent.registerInboundTransport(new HttpInboundTransport({
+        // Enable DIDComm transports: HTTP outbound + WS outbound, HTTP inbound
+        didcomm.registerOutboundTransport(new DidCommHttpOutboundTransport());
+        didcomm.registerOutboundTransport(new DidCommWsOutboundTransport());
+
+        didcomm.registerInboundTransport(new DidCommHttpInboundTransport({
             port: agentPort,
             // Allow more time for inbound message processing before timing out
             processedMessageListenerTimeoutMs: 60000,
@@ -471,14 +549,15 @@ async function initializeAgent(walletId: string, walletKey: string, multiWalletD
             if (agentWsPort === apiPort) {
                 console.warn('[WARN] Skipping WS inbound transport: AGENT_WS_PORT equals API PORT');
             } else {
-                agent.registerInboundTransport(new WsInboundTransport({ port: agentWsPort }));
+                didcomm.registerInboundTransport(new DidCommWsInboundTransport({ port: agentWsPort }));
             }
         } catch (e) {
             console.warn('Failed to register WS inbound transport', { error: (e as Error).message });
         }
+        agent.dependencyManager.registerSingleton(MessageRepository);
         await agent.initialize();
         try {
-            agent.features.register(new Protocol({ id: KEM_PROTOCOL_URI }));
+            didcomm.features.register(new DidCommProtocol({ id: KEM_PROTOCOL_URI }));
         } catch (error: any) {
             console.warn('[KEM] Failed to register protocol feature:', error?.message || error);
         }
@@ -504,9 +583,11 @@ async function initializeAgent(walletId: string, walletKey: string, multiWalletD
 }
 
 
-const setupConnectionListener = async (agent: Agent) => {
-    agent.events.on<ConnectionStateChangedEvent>(ConnectionEventTypes.ConnectionStateChanged, async ({ payload }) => {
-        if (payload.connectionRecord.state === DidExchangeState.Completed) {
+const setupConnectionListener = async (agent: AgentWithDidComm) => {
+    agent.events.on<DidCommConnectionStateChangedEvent>(
+        DidCommConnectionEventTypes.DidCommConnectionStateChanged,
+        async ({ payload }) => {
+            if (payload.connectionRecord.state === DidCommDidExchangeState.Completed) {
             const connectionId = payload.connectionRecord.id
             const oobId = payload.connectionRecord.outOfBandId
 
@@ -529,8 +610,8 @@ const setupConnectionListener = async (agent: Agent) => {
                 return; // Don't crash, just skip the auto-credential flow
             }
 
-            const oob = await _workerAgent.oob.getAll()
-            const oobRecord = oob.find((oob) => oob.id === oobId)
+            const oob = await _workerAgent.didcomm.oob.getAll()
+            const oobRecord = oob.find((record: { id?: string }) => record.id === oobId)
             const goal = oobRecord?.outOfBandInvitation.goalCode
             console.log(`Goal: ${goal}`)
             if (goal === "Get Student ID Card credential") {
@@ -574,7 +655,7 @@ const setupConnectionListener = async (agent: Agent) => {
                         value: value || '',
                     };
                 });
-                await _workerAgent.credentials.offerCredential({
+                await _workerAgent.didcomm.credentials.offerCredential({
                     connectionId,
                     // @ts-ignore
                     protocolVersion: 'v2',
@@ -625,7 +706,7 @@ const setupConnectionListener = async (agent: Agent) => {
                         value: value || '',
                     };
                 });
-                await _workerAgent.credentials.offerCredential({
+                await _workerAgent.didcomm.credentials.offerCredential({
                     connectionId,
                     // @ts-ignore
                     protocolVersion: 'v2',
@@ -651,9 +732,9 @@ const KEM_PROTOCOL_URI = 'https://essi.studio/kem-key-exchange/1.0';
 const KEM_FEATURE_MATCH = 'https://essi.studio/kem-key-exchange/*';
 const KEM_DISCOVERY_TIMEOUT_MS = 5000;
 
-const discoverKemSupport = async (agent: Agent<any>, connectionId: string): Promise<boolean> => {
+const discoverKemSupport = async (agent: AgentWithDidComm, connectionId: string): Promise<boolean> => {
     try {
-        const result = await agent.discovery.queryFeatures({
+        const result = await agent.didcomm.discovery.queryFeatures({
             connectionId,
             protocolVersion: 'v2',
             queries: [{ featureType: 'protocol', match: KEM_FEATURE_MATCH }],
@@ -668,7 +749,7 @@ const discoverKemSupport = async (agent: Agent<any>, connectionId: string): Prom
     }
 };
 
-const autoAcceptKemExchange = async (agent: Agent<any>, connectionId: string) => {
+const autoAcceptKemExchange = async (agent: AgentWithDidComm, connectionId: string) => {
     // Check if there's a pending request
     const pendingRequests = await agent.genericRecords.findAllByQuery({
         type: KEM_PENDING_REQUEST_TAG,
@@ -698,7 +779,7 @@ const autoAcceptKemExchange = async (agent: Agent<any>, connectionId: string) =>
         timestamp: new Date().toISOString(),
     });
 
-    await agent.basicMessages.sendMessage(connectionId, kemKeyMessage);
+    await agent.didcomm.basicMessages.sendMessage(connectionId, kemKeyMessage);
 
     const pendingRecord = pendingRequests[0];
     pendingRecord.content = {
@@ -710,7 +791,7 @@ const autoAcceptKemExchange = async (agent: Agent<any>, connectionId: string) =>
     await agent.genericRecords.update(pendingRecord);
 };
 
-const autoKemExchangeIfSupported = async (agent: Agent<any>, connectionId: string) => {
+const autoKemExchangeIfSupported = async (agent: AgentWithDidComm, connectionId: string) => {
     const supported = await discoverKemSupport(agent, connectionId);
     if (!supported) return;
 
@@ -741,7 +822,7 @@ const autoKemExchangeIfSupported = async (agent: Agent<any>, connectionId: strin
         timestamp: new Date().toISOString(),
     });
 
-    await agent.basicMessages.sendMessage(connectionId, kemKeyMessage);
+    await agent.didcomm.basicMessages.sendMessage(connectionId, kemKeyMessage);
 };
 
 /**
@@ -749,10 +830,10 @@ const autoKemExchangeIfSupported = async (agent: Agent<any>, connectionId: strin
  * This is called when a tenant agent is activated to catch up on messages
  * received while the agent was offline
  */
-const processExistingKemMessages = async (agent: Agent<any>) => {
+const processExistingKemMessages = async (agent: AgentWithDidComm) => {
     try {
         // Get all basic messages
-        const basicMessages = await agent.basicMessages.findAllByQuery({});
+        const basicMessages = await agent.didcomm.basicMessages.findAllByQuery({});
 
         for (const message of basicMessages) {
             // Only process received messages
@@ -830,7 +911,7 @@ const processExistingKemMessages = async (agent: Agent<any>) => {
 };
 
 const applyOwnerAckToSigningVault = async (
-    agent: Agent<any>,
+    agent: AgentWithDidComm,
     opts: { signedVaultId?: string; originalVaultId?: string; action?: string; at?: string; fromConnectionId?: string }
 ) => {
     try {
@@ -868,7 +949,7 @@ const applyOwnerAckToSigningVault = async (
  * Listens for incoming basic messages that contain KEM key exchange data
  * Stores the peer's key and creates a pending request for the user to accept
  */
-const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
+const setupKemKeyExchangeHandler = (agent: AgentWithDidComm) => {
     // Use eventEmitter (Credo 0.5.x) or events (Credo 0.6+)
     const emitter = (agent as any).eventEmitter || (agent as any).events;
     if (!emitter) {
@@ -876,7 +957,7 @@ const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
         return;
     }
     console.log('[KEM] Setting up KEM key exchange handler');
-    emitter.on(BasicMessageEventTypes.BasicMessageStateChanged, async (event: any) => {
+    emitter.on(DidCommBasicMessageEventTypes.DidCommBasicMessageStateChanged, async (event: any) => {
         // Get the tenant context from the event metadata
         const { payload } = event;
         const contextCorrelationId = event.metadata?.contextCorrelationId;
@@ -1005,12 +1086,30 @@ const setupKemKeyExchangeHandler = (agent: Agent<any>) => {
     });
 };
 
+// Patterns that indicate a stale/dead Askar session — safe to evict + retry
+const STALE_SESSION_PATTERNS = [
+    'Failed to acquire an agent context session',
+    'wallet is closed',
+    'wallet has been closed',
+    'database is closed',
+    'connection was closed',
+    'connection refused',
+    'AskarError',
+    'WalletError',
+    'is not open',
+];
+
+function isStaleSessionError(error: any): boolean {
+    const msg: string = (error?.message ?? '').toLowerCase();
+    return STALE_SESSION_PATTERNS.some(p => msg.includes(p.toLowerCase()));
+}
+
 // Helper function to implement retries with exponential backoff
 async function withRetry<T>(fn: () => Promise<T>, retries = MAX_RETRIES, delay = RETRY_DELAY): Promise<T> {
     try {
         return await fn();
     } catch (error: any) {
-        if (retries <= 0 || !error.message?.includes('Failed to acquire an agent context session')) {
+        if (retries <= 0 || !isStaleSessionError(error)) {
             throw error;
         }
 
@@ -1021,124 +1120,152 @@ async function withRetry<T>(fn: () => Promise<T>, retries = MAX_RETRIES, delay =
 }
 
 /**
- * Get or create an agent for a wallet ID
+ * Clears the cached tenant agent so the next call to getAgent() opens a fresh session.
+ */
+export function clearTenantAgentCache(tenantId: string): void {
+    delete tenantAgentCache[tenantId];
+    console.log(`[AgentService] Cleared cached tenant agent for tenant: ${tenantId}`);
+}
+
+/**
+ * Activate a tenant agent: open a session, wire up handlers, start the workflow queue.
+ * Returns the tenant agent and caches it. Runs processExistingKemMessages in the background.
+ */
+async function activateTenantAgent(tenantId: string, baseAgent: AgentWithDidComm): Promise<AgentWithDidComm> {
+    const tenantAgent = await withRetry(() => baseAgent.modules.tenants.getTenantAgent({
+        tenantId
+    })) as AgentWithDidComm;
+
+    tenantAgentCache[tenantId] = tenantAgent;
+    console.log(`Cached tenant agent for tenant: ${tenantId}`);
+
+    // Set up KEM key exchange message handler
+    setupKemKeyExchangeHandler(tenantAgent);
+
+    // Process existing KEM messages in the background — don't block the first API response
+    processExistingKemMessages(tenantAgent).catch(err => {
+        console.error('[KEM] Failed to process existing messages:', err);
+    });
+
+    // Track activity in Redis (non-blocking)
+    tenantActivityCache.set(tenantId, { lastAccess: new Date().toISOString(), podId: POD_ID }).catch(() => {});
+
+    // Start workflow queue (awaited — needs to be ready before first workflow request)
+    await ensureTenantWorkflowQueue(tenantAgent, tenantId);
+
+    return tenantAgent;
+}
+
+/**
+ * Get or create an agent for a wallet ID. Automatically evicts the cache and reopens
+ * a fresh session when the cached agent's Askar session has gone stale (e.g. after idle).
  */
 export async function getAgent({
-    tenantId
+    tenantId,
 }: {
-    tenantId?: string
-}): Promise<Agent<any>> {
-    console.log(`Getting agent for tenant: ${tenantId}`);
-
+    tenantId?: string;
+}): Promise<AgentWithDidComm> {
     if (!tenantId) {
         throw new Error('Tenant ID is required');
     }
 
+    // Fast path: cached agent
     if (tenantAgentCache[tenantId]) {
-        console.log(`Using cached tenant agent for tenant: ${tenantId}`);
         // Update activity in Redis (async, don't await to avoid blocking)
         tenantActivityCache.set(tenantId, { lastAccess: new Date().toISOString(), podId: POD_ID }).catch(() => {});
         return tenantAgentCache[tenantId];
     }
 
-    if (mainAgent) {
-        console.log(`Using existing main agent for tenant: ${tenantId}`);
-
-        try {
-            const tenantAgent = await withRetry(() => mainAgent!.modules.tenants.getTenantAgent({
-                tenantId
-            })) as Agent<any>;
-
-            tenantAgentCache[tenantId] = tenantAgent;
-            console.log(`Cached tenant agent for tenant: ${tenantId}`);
-
-            // Set up KEM key exchange message handler
-            setupKemKeyExchangeHandler(tenantAgent);
-
-            // Process any existing unprocessed KEM messages (must complete before returning)
-            try {
-                await processExistingKemMessages(tenantAgent);
-            } catch (err) {
-                console.error('[KEM] Failed to process existing messages:', err);
-            }
-
-            // Track activity in Redis
-            await tenantActivityCache.set(tenantId, { lastAccess: new Date().toISOString(), podId: POD_ID });
-
-            await ensureTenantWorkflowQueue(tenantAgent, tenantId);
-
-            return tenantAgent;
-        } catch (error) {
-            console.error(`Error getting tenant agent: ${error}`);
-            throw error;
-        }
+    // Serialize initialization: if already initializing this tenant, wait for that promise
+    // instead of opening a second concurrent session (prevents leaked sessions + double-init).
+    if (tenantInitPending[tenantId]) {
+        return tenantInitPending[tenantId];
     }
 
-    try {
-        console.log(`Main agent not initialized. Creating new main agent.`);
-        const agent = await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
+    const initPromise = (async (): Promise<AgentWithDidComm> => {
+        // Re-check cache inside the async block (another init may have completed while we awaited)
+        const cached = tenantAgentCache[tenantId];
+        if (cached) return cached;
 
-        const tenantAgent = await withRetry(() => agent.modules.tenants.getTenantAgent({
-            tenantId
-        })) as Agent<any>;
-
-        tenantAgentCache[tenantId] = tenantAgent;
-        console.log(`Cached tenant agent for tenant: ${tenantId}`);
-
-        // Set up KEM key exchange message handler
-        setupKemKeyExchangeHandler(tenantAgent);
-
-        // Process any existing unprocessed KEM messages (must complete before returning)
-        try {
-            await processExistingKemMessages(tenantAgent);
-        } catch (err) {
-            console.error('[KEM] Failed to process existing messages:', err);
-        }
-
-        await ensureTenantWorkflowQueue(tenantAgent, tenantId);
-
-        return tenantAgent;
-    } catch (error: any) {
-        if (error.message?.includes('already exists')) {
-            console.log(`Wallet already exists, trying to open it`);
-
-            const agent = await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
-
-            const tenantAgent = await withRetry(() => agent.modules.tenants.getTenantAgent({
-                tenantId
-            })) as Agent<any>;
-
-            tenantAgentCache[tenantId] = tenantAgent;
-            console.log(`Cached tenant agent for tenant: ${tenantId}`);
-
-            // Set up KEM key exchange message handler
-            setupKemKeyExchangeHandler(tenantAgent);
-
-            // Process any existing unprocessed KEM messages (must complete before returning)
+        if (mainAgent) {
+            console.log(`Using existing main agent for tenant: ${tenantId}`);
             try {
-                await processExistingKemMessages(tenantAgent);
-            } catch (err) {
-                console.error('[KEM] Failed to process existing messages:', err);
+                return await activateTenantAgent(tenantId, mainAgent);
+            } catch (error) {
+                console.error(`Error getting tenant agent: ${error}`);
+                throw error;
             }
-
-            await ensureTenantWorkflowQueue(tenantAgent, tenantId);
-
-            return tenantAgent;
         }
 
-        console.error(`Failed to get agent for tenant ${tenantId}:`, error);
-        throw error;
+        try {
+            console.log(`Main agent not initialized. Creating new main agent.`);
+            const agent = await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
+            return await activateTenantAgent(tenantId, agent);
+        } catch (error: any) {
+            if (error.message?.includes('already exists')) {
+                console.log(`Wallet already exists, trying to open it`);
+                const agent = await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
+                return await activateTenantAgent(tenantId, agent);
+            }
+            console.error(`Failed to get agent for tenant ${tenantId}:`, error);
+            throw error;
+        }
+    })();
+
+    tenantInitPending[tenantId] = initPromise;
+    try {
+        return await initPromise;
+    } finally {
+        delete tenantInitPending[tenantId];
+    }
+}
+
+/**
+ * Run an operation with a tenant agent, automatically recovering from stale sessions.
+ * On a stale/closed session error the cache is evicted and the operation retried once
+ * with a fresh session — fixing the "slows down after idle / stops on error" symptom.
+ */
+export async function withAgent<T>(
+    tenantId: string,
+    operation: (agent: AgentWithDidComm) => Promise<T>
+): Promise<T> {
+    const agent = await getAgent({ tenantId });
+    try {
+        return await operation(agent);
+    } catch (error: any) {
+        if (!isStaleSessionError(error)) throw error;
+
+        console.warn(`[AgentService] Stale session detected for tenant ${tenantId}, reopening: ${error.message}`);
+        clearTenantAgentCache(tenantId);
+        const freshAgent = await getAgent({ tenantId });
+        return operation(freshAgent);
     }
 }
 
 /**
  * Get the main agent
  */
-export async function getMainAgent(): Promise<Agent> {
+export async function getMainAgent(): Promise<AgentWithDidComm> {
     if (!mainAgent) {
         throw new Error('Main agent not initialized');
     }
     return mainAgent;
+}
+
+/**
+ * Get the label for a tenant by ID
+ */
+export async function getTenantLabel(tenantId: string): Promise<string | null> {
+    try {
+        if (!mainAgent || !mainAgent.isInitialized) {
+            await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
+        }
+        if (!mainAgent) return null;
+        const tenantRecord = await mainAgent.modules.tenants.getTenantById(tenantId);
+        return tenantRecord?.config?.label ?? null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -1181,7 +1308,9 @@ export async function validateCredentials(tenantId: string): Promise<boolean> {
 /**
  * Initialize the agent system - should be called once when the Express server starts
  */
-export async function initializeAgentSystem(): Promise<void> {
+export async function initializeAgentSystem(app: Express): Promise<void> {
+
+    openId4VcApp = app;
 
     if (mainAgent) {
         return;

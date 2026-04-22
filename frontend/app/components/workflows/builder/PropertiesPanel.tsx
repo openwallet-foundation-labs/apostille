@@ -36,7 +36,7 @@ export function PropertiesPanel() {
     return (
       <button
         onClick={() => setPropertiesPanelOpen(true)}
-        className="absolute right-18 top-6 z-10 bg-surface-100 dark:bg-surface-800 text-text-secondary hover:text-text-primary px-2 py-1 rounded text-xs border border-border-secondary"
+        className="absolute right-18 top-6 z-10 bg-surface-100 text-text-secondary hover:text-text-primary px-2 py-1 rounded text-xs border border-border-secondary"
       >
         Properties
       </button>
@@ -44,7 +44,7 @@ export function PropertiesPanel() {
   }
 
   return (
-    <div className="w-72 shrink-0 bg-surface-50 dark:bg-surface-900 border-l border-border-secondary overflow-y-auto">
+    <div className="w-72 shrink-0 bg-surface-50 border-l border-border-secondary overflow-y-auto">
       <div className="flex items-center justify-between p-3 border-b border-border-secondary">
         <h2 className="text-sm font-semibold text-text-secondary">Properties</h2>
         <button
@@ -109,7 +109,7 @@ function StatePropertiesEditor({ state, onUpdate }: StatePropertiesEditorProps) 
           onChange={(e) => setLocalName(e.target.value)}
           onBlur={handleNameBlur}
           onKeyDown={(e) => e.key === 'Enter' && handleNameBlur()}
-          className="w-full bg-surface-100 dark:bg-surface-800 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500"
+          className="w-full bg-surface-100 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500"
         />
       </div>
 
@@ -118,7 +118,7 @@ function StatePropertiesEditor({ state, onUpdate }: StatePropertiesEditorProps) 
         <select
           value={state.type}
           onChange={(e) => onUpdate(state.name, { type: e.target.value as StateType })}
-          className="w-full bg-surface-100 dark:bg-surface-800 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500"
+          className="w-full bg-surface-100 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500"
         >
           <option value="start">Start</option>
           <option value="normal">Normal</option>
@@ -131,7 +131,7 @@ function StatePropertiesEditor({ state, onUpdate }: StatePropertiesEditorProps) 
         <select
           value={state.section || ''}
           onChange={(e) => onUpdate(state.name, { section: e.target.value || undefined })}
-          className="w-full bg-surface-100 dark:bg-surface-800 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500"
+          className="w-full bg-surface-100 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500"
         >
           <option value="">None</option>
           {template.sections?.map((sec) => (
@@ -178,11 +178,11 @@ function TransitionPropertiesEditor({ transition, edgeId, onUpdate }: Transition
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-xs">
-        <div className="bg-surface-100 dark:bg-surface-800 rounded px-2 py-1.5">
+        <div className="bg-surface-100 rounded px-2 py-1.5">
           <span className="text-text-tertiary">From:</span>{' '}
           <span className="text-text-secondary">{transition.from}</span>
         </div>
-        <div className="bg-surface-100 dark:bg-surface-800 rounded px-2 py-1.5">
+        <div className="bg-surface-100 rounded px-2 py-1.5">
           <span className="text-text-tertiary">To:</span>{' '}
           <span className="text-text-secondary">{transition.to}</span>
         </div>
@@ -196,7 +196,7 @@ function TransitionPropertiesEditor({ transition, edgeId, onUpdate }: Transition
           onChange={(e) => setLocalEvent(e.target.value)}
           onBlur={handleEventBlur}
           onKeyDown={(e) => e.key === 'Enter' && handleEventBlur()}
-          className="w-full bg-surface-100 dark:bg-surface-800 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500"
+          className="w-full bg-surface-100 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500"
         />
       </div>
 
@@ -210,7 +210,7 @@ function TransitionPropertiesEditor({ transition, edgeId, onUpdate }: Transition
           onChange={(e) => setLocalGuard(e.target.value)}
           onBlur={handleGuardBlur}
           placeholder="e.g., context.ready == `true`"
-          className="w-full bg-surface-100 dark:bg-surface-800 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500 placeholder:text-text-tertiary"
+          className="w-full bg-surface-100 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500 placeholder:text-text-tertiary"
         />
       </div>
 
@@ -219,7 +219,7 @@ function TransitionPropertiesEditor({ transition, edgeId, onUpdate }: Transition
         <select
           value={transition.action || ''}
           onChange={(e) => onUpdate(edgeId, { action: e.target.value || undefined })}
-          className="w-full bg-surface-100 dark:bg-surface-800 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500"
+          className="w-full bg-surface-100 border border-border-secondary rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-primary-500"
         >
           <option value="">None</option>
           {template.actions.map((action) => (

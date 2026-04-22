@@ -3,6 +3,8 @@ type Request = any
 type Response = any
 type Router = any
 
+const importWorkflow = Function('m', 'return import(m)') as (m: string) => Promise<any>
+
 export type GetAgent = (opts: { tenantId: string }) => Promise<{
   modules: any
   dependencyManager: any
@@ -178,30 +180,39 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
 
       // Validate connection exists
       try {
-        const { ConnectionService } = require('@credo-ts/core')
-        const connectionSvc = agent.dependencyManager.resolve(ConnectionService)
-        const conn = await connectionSvc.getById(agent.context, connection_id)
-        try {
-          // Lightweight diagnostics: confirm DID ownership + context id
-          const myDid = (conn as any).myDid
-          const theirDid = (conn as any).theirDid
-          const ccid = (agent as any)?.context?.contextCorrelationId
-          // eslint-disable-next-line no-console
-          console.info('[workflow-backend-express] start: validate connection ok', {
-            tenantId,
-            connection_id,
-            myDid,
-            theirDid,
-            contextCorrelationId: ccid,
-          })
-        } catch {}
-      } catch {
+        const didcommAgent = agent as any
+        const conn = await didcommAgent.didcomm.connections.findById(connection_id)
+        if (!conn) {
+
+          try {
+            const allConns: any[] = await didcommAgent.didcomm.connections.getAll()
+            console.warn('[workflow-backend-express] start: connection not found', {
+              tenantId,
+              connection_id,
+              contextCorrelationId: didcommAgent?.context?.contextCorrelationId,
+              visibleConnectionIds: allConns.map((c: any) => c.id),
+            })
+          } catch {}
+          return res.status(400).json({ success: false, code: 'invalid_connection', message: `connection not found or not owned by tenant: ${connection_id}` })
+        }
+        // Lightweight diagnostics
+        console.info('[workflow-backend-express] start: validate connection ok', {
+          tenantId,
+          connection_id,
+          myDid: conn.myDid,
+          theirDid: conn.theirDid,
+          contextCorrelationId: didcommAgent?.context?.contextCorrelationId,
+        })
+      } catch (connErr: any) {
+        console.error('[workflow-backend-express] start: connection validation threw', {
+          tenantId, connection_id, error: connErr?.message,
+        })
         return res.status(400).json({ success: false, code: 'invalid_connection', message: `connection not found or not owned by tenant: ${connection_id}` })
       }
 
       // Ensure template exists (exact → latest → any)
       try {
-        const { WorkflowTemplateRepository } = require('@ajna-inc/workflow/build')
+        const { WorkflowTemplateRepository } = await importWorkflow('@ajna-inc/workflow')
         const tplRepo = agent.dependencyManager.resolve(WorkflowTemplateRepository)
         let tplRec = await tplRepo.findByTemplateIdAndVersion(agent.context, template_id, template_version)
         if (!tplRec) {
@@ -291,7 +302,7 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
       // Optionally derive ui_profile based on instance participants per spec
       try {
         if (!ui_profile) {
-          const { WorkflowInstanceRepository } = require('@ajna-inc/workflow/build')
+          const { WorkflowInstanceRepository } = await importWorkflow('@ajna-inc/workflow')
           const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
           const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
           // Do not force a profile here; let service derive using opts.viewer or participants mapping
@@ -365,7 +376,7 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
           const tenantId = (req as any).user?.tenantId
           if (tenantId) {
             const agent = await getAgent({ tenantId })
-            const { WorkflowInstanceRepository, WorkflowTemplateRepository } = require('@ajna-inc/workflow/build')
+            const { WorkflowInstanceRepository, WorkflowTemplateRepository } = await importWorkflow('@ajna-inc/workflow')
             const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
             const templateRepo = agent.dependencyManager.resolve(WorkflowTemplateRepository)
             const inst = await instanceRepo.getByInstanceId(agent.context, req.params.instanceId)
@@ -428,7 +439,7 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
       if (!event || typeof event !== 'string') return badRequest(res, 'event is required')
 
       const agent = await getAgent({ tenantId })
-      const { WorkflowService } = require('@ajna-inc/workflow/build')
+      const { WorkflowService } = await importWorkflow('@ajna-inc/workflow')
       const service = agent.dependencyManager.resolve(WorkflowService)
       const record = await service.advance(agent.context, { instance_id: instanceId, event, idempotency_key, input })
       return res.status(200).json({
@@ -459,7 +470,7 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
       const connectionId = typeof req.query.connection_id === 'string' ? req.query.connection_id : undefined
       if (!tenantId) return badRequest(res, 'Tenant ID missing from request context')
       const agent = await getAgent({ tenantId })
-      const { WorkflowInstanceRepository } = require('@ajna-inc/workflow/build')
+      const { WorkflowInstanceRepository } = await importWorkflow('@ajna-inc/workflow')
       const repo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
       const records = connectionId ? await repo.findByConnection(agent.context, connectionId) : await repo.getAll(agent.context)
       return res.status(200).json({
@@ -489,7 +500,7 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
       if (!tenantId) return badRequest(res, 'Tenant ID missing from request context')
       if (!connectionId) return badRequest(res, 'connectionId is required')
       const agent = await getAgent({ tenantId })
-      const { WorkflowInstanceRepository } = require('@ajna-inc/workflow/build')
+      const { WorkflowInstanceRepository } = await importWorkflow('@ajna-inc/workflow')
       const repo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
       const records = await repo.findByConnection(agent.context, connectionId)
       return res.status(200).json({
@@ -518,13 +529,13 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
       const tenantId = (req as any).user?.tenantId
       if (!tenantId) return badRequest(res, 'Tenant ID missing from request context')
       const agent = await getAgent({ tenantId })
-      const { WorkflowCommandRepository } = require('@ajna-inc/workflow/build')
+      const { WorkflowCommandRepository } = await importWorkflow('@ajna-inc/workflow')
       const repo = agent.dependencyManager.resolve(WorkflowCommandRepository)
       const repoMetrics = await repo.getMetrics(agent.context)
 
       let active: number | undefined = undefined
       try {
-        const { CommandQueueService } = require('@ajna-inc/workflow/build')
+        const { CommandQueueService } = await importWorkflow('@ajna-inc/workflow')
         const queue = agent.dependencyManager.resolve(CommandQueueService) as { getMetrics?: () => Promise<{ active?: number }> }
         if (queue?.getMetrics) {
           const qm = await queue.getMetrics()
@@ -546,7 +557,7 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
       const thid = typeof req.query.thid === 'string' ? req.query.thid : undefined
       const limit = req.query.limit ? Number(req.query.limit) : 50
       const agent = await getAgent({ tenantId })
-      const { WorkflowCommandRepository } = require('@ajna-inc/workflow/build')
+      const { WorkflowCommandRepository } = await importWorkflow('@ajna-inc/workflow')
       const repo = agent.dependencyManager.resolve(WorkflowCommandRepository)
       const all = await repo.getAll(agent.context)
       const filtered = all
@@ -581,22 +592,31 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
       const { connectionId } = req.params
       if (!tenantId) return badRequest(res, 'Tenant ID missing from request context')
       const agent = await getAgent({ tenantId })
-      const { ConnectionService } = require('@credo-ts/core')
-      const svc = agent.dependencyManager.resolve(ConnectionService)
+      const didcommAgent = agent as any
       try {
-        const rec = await svc.getById(agent.context, connectionId)
+        const rec = await didcommAgent.didcomm.connections.findById(connectionId)
+        if (!rec) {
+          const allConns: any[] = await didcommAgent.didcomm.connections.getAll()
+          return res.status(404).json({
+            success: false,
+            tenantId,
+            message: `connection ${connectionId} not found in tenant wallet`,
+            contextCorrelationId: didcommAgent?.context?.contextCorrelationId,
+            visibleConnectionIds: allConns.map((c: any) => c.id),
+          })
+        }
         return res.status(200).json({
           success: true,
           tenantId,
           connection: {
-            id: (rec as any).id,
-            myDid: (rec as any).myDid,
-            theirDid: (rec as any).theirDid,
+            id: rec.id,
+            myDid: rec.myDid,
+            theirDid: rec.theirDid,
           },
-          contextCorrelationId: (agent as any)?.context?.contextCorrelationId,
+          contextCorrelationId: didcommAgent?.context?.contextCorrelationId,
         })
       } catch (e) {
-        return res.status(404).json({ success: false, tenantId, message: (e as Error).message, contextCorrelationId: (agent as any)?.context?.contextCorrelationId })
+        return res.status(404).json({ success: false, tenantId, message: (e as Error).message, contextCorrelationId: didcommAgent?.context?.contextCorrelationId })
       }
     } catch (e) {
       return res.status(500).json({ success: false, message: (e as Error).message })

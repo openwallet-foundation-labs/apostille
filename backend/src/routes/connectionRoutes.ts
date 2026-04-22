@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { getAgent } from '../services/agentService';
-import { ConnectionRecord } from '@credo-ts/core';
+import { DidCommRoutingService } from '@credo-ts/didcomm';
+import { getAgent, getTenantLabel } from '../services/agentService';
 import { auth } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -22,9 +22,9 @@ router.route('/')
       }
 
       const agent = await getAgent({ tenantId });
-      const invitations = await agent.oob.getAll();
+      const invitations = await agent.didcomm.oob.getAll();
       // console.log(`Invitations: ${JSON.stringify(invitations)}`);
-      const connections = await agent.connections.getAll();
+      const connections = await agent.didcomm.connections.getAll();
       // console.log(`Connections: ${JSON.stringify(connections)}`);
       // remove if State is done
       const filteredInvitations = invitations.filter((invitation: any) => invitation.state !== 'done');
@@ -38,7 +38,7 @@ router.route('/')
           invitationId: invitation.outOfBandInvitation['@id'],
           label: invitation.outOfBandInvitation.label,
           url: invitation.outOfBandInvitation.toUrl ?
-            invitation.outOfBandInvitation.toUrl({ domain: agent.config.endpoints[0] }) :
+          invitation.outOfBandInvitation.toUrl({ domain: agent.didcomm.config.endpoints[0] }) :
             null
         })),
         connections: connections.map((connection: any) => ({
@@ -77,7 +77,7 @@ router.route('/:connectionId')
       }
 
       const agent = await getAgent({ tenantId });
-      const connection = await agent.connections.findById(connectionId);
+      const connection = await agent.didcomm.connections.findById(connectionId);
 
       if (!connection) {
         res.status(404).json({
@@ -127,14 +127,14 @@ router.route('/invitation')
 
       const agent = await getAgent({ tenantId });
 
-      const { outOfBandInvitation } = await agent.oob.createInvitation({
+      const { outOfBandInvitation } = await agent.didcomm.oob.createInvitation({
         multiUseInvitation: true,
         // Allow custom label for invitation when provided by UI
         ...(label ? { label } : {}),
       });
 
       // Use this agent's configured HTTP endpoint for invitation domain
-      const invitationUrl = outOfBandInvitation.toUrl({ domain: agent.config.endpoints[0] });
+      const invitationUrl = outOfBandInvitation.toUrl({ domain: agent.didcomm.config.endpoints[0] });
 
       res.status(200).json({
         success: true,
@@ -160,7 +160,7 @@ router.route('/receive-invitation')
   .post(auth, async (req: Request, res: Response) => {
     try {
       const tenantId = req.user.tenantId;
-      const { invitationUrl } = req.body;
+      const { invitationUrl, label } = req.body;
 
       if (!invitationUrl) {
         res.status(400).json({
@@ -171,8 +171,15 @@ router.route('/receive-invitation')
       }
 
       const agent = await getAgent({ tenantId });
+      const routingService = agent.context.dependencyManager.resolve(DidCommRoutingService);
+      const routing = await routingService.getRouting(agent.context);
 
-      const { connectionRecord } = await agent.oob.receiveInvitationFromUrl(invitationUrl);
+      const tenantLabel = await getTenantLabel(tenantId);
+      const connectionLabel = typeof label === 'string' && label.trim().length > 0 ? label.trim() : (tenantLabel ?? 'Unknown');
+      const { connectionRecord } = await agent.didcomm.oob.receiveInvitationFromUrl(invitationUrl, {
+        routing,
+        label: connectionLabel,
+      });
 
       if (!connectionRecord) {
         res.status(400).json({
@@ -220,7 +227,7 @@ router.route('/message')
 
       const agent = await getAgent({ tenantId });
 
-      const connection = await agent.connections.findById(connectionId);
+      const connection = await agent.didcomm.connections.findById(connectionId);
 
       if (!connection) {
         res.status(404).json({
@@ -230,7 +237,7 @@ router.route('/message')
         return;
       }
 
-      const m = await agent.basicMessages.sendMessage(connection.id, message);
+      const m = await agent.didcomm.basicMessages.sendMessage(connection.id, message);
       console.log(`Message sent to connection ${connectionId}: ${message}`);
 
 
@@ -266,7 +273,7 @@ router.route('/messages/:connectionId')
       }
 
       const agent = await getAgent({ tenantId });
-      const connection = await agent.connections.findById(connectionId);
+      const connection = await agent.didcomm.connections.findById(connectionId);
 
       if (!connection) {
         res.status(404).json({
@@ -285,7 +292,7 @@ router.route('/messages/:connectionId')
         });
         return;
       }
-      const messages = await agent.basicMessages.findAllByQuery({
+      const messages = await agent.didcomm.basicMessages.findAllByQuery({
         connectionId: connectionId
       })
       console.log(`Messages: ${JSON.stringify(messages)}`);
@@ -325,7 +332,7 @@ router.route('/:connectionId/kem-status')
       const agent = await getAgent({ tenantId });
 
       // Check if connection exists
-      const connection = await agent.connections.findById(connectionId);
+      const connection = await agent.didcomm.connections.findById(connectionId);
       if (!connection) {
         return res.status(404).json({
           success: false,
@@ -342,7 +349,7 @@ router.route('/:connectionId/kem-status')
       // If we don't have peer's key, check basic messages for unprocessed KEM messages
       // This handles the case where both users initiated exchange simultaneously
       if (!hasPeerKey) {
-        const basicMessages = await agent.basicMessages.findAllByQuery({
+        const basicMessages = await agent.didcomm.basicMessages.findAllByQuery({
           connectionId: connectionId,
         });
 
@@ -434,7 +441,7 @@ router.route('/:connectionId/exchange-keys')
       const agent = await getAgent({ tenantId });
 
       // Check if connection exists and is active
-      const connection = await agent.connections.findById(connectionId);
+      const connection = await agent.didcomm.connections.findById(connectionId);
       if (!connection) {
         return res.status(404).json({
           success: false,
@@ -476,7 +483,7 @@ router.route('/:connectionId/exchange-keys')
         timestamp: new Date().toISOString(),
       });
 
-      await agent.basicMessages.sendMessage(connectionId, kemKeyMessage);
+      await agent.didcomm.basicMessages.sendMessage(connectionId, kemKeyMessage);
       console.log(`[KEM] Sent public key to connection ${connectionId}`);
 
       // Check current status
@@ -522,7 +529,7 @@ router.route('/:connectionId/accept-key-exchange')
       const agent = await getAgent({ tenantId });
 
       // Check if connection exists
-      const connection = await agent.connections.findById(connectionId);
+      const connection = await agent.didcomm.connections.findById(connectionId);
       if (!connection) {
         return res.status(404).json({
           success: false,
@@ -570,7 +577,7 @@ router.route('/:connectionId/accept-key-exchange')
         timestamp: new Date().toISOString(),
       });
 
-      await agent.basicMessages.sendMessage(connectionId, kemKeyMessage);
+      await agent.didcomm.basicMessages.sendMessage(connectionId, kemKeyMessage);
       console.log(`[KEM] Sent acceptance response to connection ${connectionId}`);
 
       // Mark the pending request as accepted

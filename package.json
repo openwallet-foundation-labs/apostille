@@ -34,7 +34,7 @@
     "jest-environment-jsdom": "^29.7.0"
   },
   "dependencies": {
-    "@openwallet-foundation/askar-nodejs": "^0.4.1",
+    "@openwallet-foundation/askar-nodejs": "^0.4.3",
     "buffer": "^6.0.3",
     "motion": "^12.23.3"
   },
@@ -48,13 +48,17 @@
   },
   "packageManager": "yarn@4.3.1",
   "resolutions": {
-    "@credo-ts/core": "0.5.17",
-    "@credo-ts/node": "0.5.17",
-    "@credo-ts/anoncreds": "0.5.17",
-    "@credo-ts/askar": "0.5.17",
-    "@credo-ts/cheqd": "0.5.17",
-    "@credo-ts/indy-vdr": "0.5.17",
-    "@credo-ts/tenants": "0.5.17",
-    "uint8arrays": "3.1.1"
+    "@credo-ts/core": "0.6.1",
+    "@credo-ts/didcomm": "0.6.1",
+    "@credo-ts/node": "0.6.1",
+    "@credo-ts/anoncreds": "0.6.1",
+    "@credo-ts/askar": "0.6.1",
+    "@credo-ts/cheqd": "0.6.1",
+    "@credo-ts/indy-vdr": "0.6.1",
+    "@credo-ts/tenants": "0.6.1",
+    "uint8arrays": "3.1.1",
+    "@types/express": "4.17.21",
+    "@types/express-serve-static-core": "4.19.6",
+    "@types/serve-static": "1.15.7"
   }
 }
