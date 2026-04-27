@@ -98,43 +98,38 @@ export default function CredentialDesignerPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Action Bar */}
-      <div className="flex justify-end">
-        <button
-          onClick={() => setShowNewModal(true)}
-          className="btn btn-primary flex items-center gap-2"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Card Designer</h1>
+          <p className="page-sub">Design credential card templates with drag-and-drop.</p>
+        </div>
+        <button onClick={() => setShowNewModal(true)} className="btn btn-primary">
           New Template
         </button>
       </div>
 
       {/* Templates grid */}
       {templates.length === 0 ? (
-        <div className="card text-center py-16">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface-200 flex items-center justify-center">
-            <svg className="w-8 h-8 text-text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+        <div className="empty">
+          <div className="empty-icon">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="22" height="22">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
           </div>
-          <h3 className="text-lg font-medium text-text-primary mb-2">No templates yet</h3>
-          <p className="text-text-secondary mb-6">Create your first credential template to get started</p>
-          <button
-            onClick={() => setShowNewModal(true)}
-            className="btn btn-primary"
-          >
-            Create Template
-          </button>
+          <div className="empty-title">No templates yet</div>
+          <div className="empty-desc">Create your first credential template to get started.</div>
+          <div className="empty-actions">
+            <button onClick={() => setShowNewModal(true)} className="btn btn-primary">Create Template</button>
+          </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid-3">
           {templates.map((template) => (
             <div
               key={template.id}
-              className="card overflow-hidden hover:shadow-lg transition-shadow"
+              style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: 'var(--bg-elev)', transition: 'border-color 0.15s', cursor: 'pointer' }}
             >
               {/* Preview */}
               <div
@@ -219,13 +214,13 @@ export default function CredentialDesignerPage() {
 
       {/* New Template Modal */}
       {showNewModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="card w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-border-primary">
-              <h2 className="text-xl font-semibold text-text-primary">Create New Template</h2>
+        <div className="modal-backdrop">
+          <div className="modal-container max-w-lg">
+            <div className="modal-header">
+              <h2 className="modal-title">Create New Template</h2>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-1">
                   Template Name

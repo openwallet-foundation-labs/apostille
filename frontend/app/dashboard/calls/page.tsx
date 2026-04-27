@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import { apiGet, apiPost } from '../../utils/api'
 import { connectionApi } from '@/lib/api'
 import { useNotifications } from '../../context/NotificationContext'
+import { Icon } from '../../components/ui/Icons'
 
 type Connection = { id: string; theirLabel?: string; state: string }
 type OfferEvt = { connectionId: string; threadId: string; sdp: string; theirLabel?: string; pthid?: string }
@@ -38,7 +39,7 @@ function RemoteVideo({ stream, label }: { stream: MediaStream | null; label?: st
   }, [stream])
 
   return (
-    <div className="relative w-full h-full bg-black rounded-2xl overflow-hidden">
+    <div className="relative w-full h-full bg-black overflow-hidden" style={{ borderRadius: 'var(--radius-lg)' }}>
       <div className="absolute inset-0 flex items-center justify-center">
         <div
           className="relative h-full max-w-full"
@@ -54,8 +55,8 @@ function RemoteVideo({ stream, label }: { stream: MediaStream | null; label?: st
         </div>
       </div>
       {label && (
-        <div className="absolute bottom-4 left-4 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-sm">
-          <span className="text-sm font-medium text-white">{label}</span>
+        <div className="absolute bottom-4 left-4" style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(0,0,0,0.6)' }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'white' }}>{label}</span>
         </div>
       )}
     </div>
@@ -482,25 +483,30 @@ export default function CallsPage() {
     <div className="h-full">
       {/* Incoming Call Modal */}
       {incomingCall && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-surface-100 rounded-3xl p-8 w-full max-w-sm text-center shadow-2xl">
-            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-primary-100 flex items-center justify-center animate-pulse">
-              <UserIcon className="w-10 h-10 text-primary-600" />
+        <div className="modal-backdrop" style={{ background: 'rgba(0,0,0,0.7)' }}>
+          <div className="card" style={{ padding: 32, maxWidth: 340, width: '100%', textAlign: 'center', borderRadius: 'var(--radius-xl)' }}>
+            <div style={{
+              width: 72, height: 72, margin: '0 auto 16px', borderRadius: '50%',
+              background: 'var(--accent-soft)', display: 'grid', placeItems: 'center',
+            }} className="animate-pulse-subtle">
+              <Icon name="user" size={32} style={{ color: 'var(--accent)' }} />
             </div>
-            <h2 className="text-xl font-semibold text-text-primary mb-1">Incoming Call</h2>
-            <p className="text-text-secondary mb-8">{callerName}</p>
-            <div className="flex justify-center gap-6">
-              <button
-                onClick={rejectCall}
-                className="w-16 h-16 rounded-full bg-error-500 hover:bg-error-600 text-white flex items-center justify-center transition-colors shadow-lg"
-              >
-                <PhoneOffIcon className="w-7 h-7" />
+            <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4, color: 'var(--ink)' }}>Incoming Call</h2>
+            <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 28 }}>{callerName}</p>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 20 }}>
+              <button onClick={rejectCall} style={{
+                width: 56, height: 56, borderRadius: '50%', background: 'var(--red)',
+                color: 'white', display: 'grid', placeItems: 'center', border: 'none', cursor: 'pointer',
+                boxShadow: 'var(--shadow-md)', transition: 'filter 0.15s',
+              }}>
+                <PhoneOffIcon className="w-6 h-6" />
               </button>
-              <button
-                onClick={acceptCall}
-                className="w-16 h-16 rounded-full bg-success-500 hover:bg-success-600 text-white flex items-center justify-center transition-colors shadow-lg"
-              >
-                <PhoneIcon className="w-7 h-7" />
+              <button onClick={acceptCall} style={{
+                width: 56, height: 56, borderRadius: '50%', background: 'var(--green)',
+                color: 'white', display: 'grid', placeItems: 'center', border: 'none', cursor: 'pointer',
+                boxShadow: 'var(--shadow-md)', transition: 'filter 0.15s',
+              }}>
+                <PhoneIcon className="w-6 h-6" />
               </button>
             </div>
           </div>
@@ -509,104 +515,111 @@ export default function CallsPage() {
 
       {/* In Call View */}
       {inCall ? (
-        <div className="h-[calc(100vh-200px)] flex flex-col">
+        <div style={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>
           {/* Main video area */}
-          <div className="flex-1 relative bg-surface-900 rounded-2xl overflow-hidden">
-            {/* Remote video (full size) */}
+          <div className="flex-1 relative overflow-hidden" style={{ background: 'var(--bg-sunk)', borderRadius: 'var(--radius-lg)' }}>
             {remotePeer ? (
               <RemoteVideo
                 stream={remoteStreamRef.current}
                 label={remotePeer.label || remotePeer.connectionId}
               />
             ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-                <div className="w-24 h-24 rounded-full bg-surface-700 flex items-center justify-center mb-4">
-                  <UserIcon className="w-12 h-12 text-surface-400" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ color: 'var(--ink-3)' }}>
+                <div style={{
+                  width: 80, height: 80, borderRadius: '50%', background: 'var(--bg-sunk)',
+                  display: 'grid', placeItems: 'center', marginBottom: 16,
+                }}>
+                  <Icon name="user" size={36} />
                 </div>
-                <p className="text-lg font-medium">{callingPeer?.theirLabel || 'Connecting...'}</p>
+                <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--ink)' }}>{callingPeer?.theirLabel || 'Connecting...'}</p>
                 {status === 'calling' && (
-                  <p className="text-sm text-surface-400 mt-2">Ringing...</p>
+                  <p style={{ fontSize: 13, color: 'var(--ink-4)', marginTop: 8 }}>Ringing...</p>
                 )}
               </div>
             )}
 
-            {/* Local video (picture-in-picture) */}
-            <div className="absolute bottom-4 right-4 w-32 md:w-48 aspect-video rounded-xl overflow-hidden shadow-2xl border-2 border-white/20 bg-black">
-              <video
-                ref={localVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-contain"
-              />
+            {/* Local PiP */}
+            <div className="absolute bottom-4 right-4" style={{
+              width: 160, aspectRatio: '16/9', borderRadius: 'var(--radius)',
+              overflow: 'hidden', border: '2px solid rgba(255,255,255,0.2)',
+              background: 'black', boxShadow: 'var(--shadow-md)',
+            }}>
+              <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
             </div>
           </div>
 
           {/* Call controls */}
-          <div className="flex justify-center gap-4 py-6">
-            <button
-              onClick={endCall}
-              className="w-14 h-14 rounded-full bg-error-500 hover:bg-error-600 text-white flex items-center justify-center transition-colors shadow-lg"
-            >
-              <PhoneOffIcon className="w-6 h-6" />
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 12, padding: '20px 0' }}>
+            <button onClick={endCall} style={{
+              width: 48, height: 48, borderRadius: '50%', background: 'var(--red)',
+              color: 'white', display: 'grid', placeItems: 'center', border: 'none', cursor: 'pointer',
+              boxShadow: 'var(--shadow-md)',
+            }}>
+              <PhoneOffIcon className="w-5 h-5" />
             </button>
           </div>
         </div>
       ) : (
         /* Contact List View */
-        <div className="space-y-6">
+        <div>
+          {/* Header */}
+          <div className="page-header">
+            <div>
+              <h1 className="page-title">Calls</h1>
+              <p className="page-sub">WebRTC calls over DIDComm-mediated signaling.</p>
+            </div>
+          </div>
+
           {/* Search */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search contacts..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="input w-full pl-10"
-            />
-            <svg className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div className="card-pad" style={{ padding: '14px 18px' }}>
+              <div style={{ position: 'relative' }}>
+                <Icon name="search" size={14} className="absolute left-[10px] top-1/2 -translate-y-1/2" style={{ color: 'var(--ink-4)' }} />
+                <input
+                  type="text"
+                  placeholder="Search contacts..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="input"
+                  style={{ paddingLeft: 32, height: 36, width: '100%' }}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Contacts grid */}
           {filteredConnections.length === 0 ? (
-            <div className="card p-12 text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface-200 flex items-center justify-center">
-                <UserIcon className="w-8 h-8 text-text-tertiary" />
-              </div>
-              <h3 className="text-lg font-medium text-text-primary mb-2">No contacts found</h3>
-              <p className="text-text-secondary text-sm">
+            <div className="empty">
+              <div className="empty-icon"><Icon name="phone" size={22} /></div>
+              <div className="empty-title">No contacts found</div>
+              <div className="empty-desc">
                 {searchQuery ? 'Try a different search term' : 'Add connections to start calling'}
-              </p>
+              </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredConnections.map((connection) => (
-                <div
-                  key={connection.id}
-                  className="card p-4 flex items-center gap-4 hover:shadow-md transition-shadow"
-                >
-                  <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                    <UserIcon className="w-6 h-6 text-primary-600" />
+            <div className="grid-3">
+              {filteredConnections.map((connection, idx) => {
+                const label = connection.theirLabel || 'Unknown';
+                const avatarCls = ['a1','a2','a3','a4','a5','a6'][idx % 6];
+                const initials = label.split(' ').map((w: string) => w[0]).join('').slice(0,2).toUpperCase();
+                return (
+                  <div key={connection.id} className="contact">
+                    <div className={`avatar avatar-lg ${avatarCls}`}>{initials}</div>
+                    <div className="contact-info">
+                      <div className="contact-name">{label}</div>
+                      <div className="contact-id">{connection.id.slice(0, 18)}...</div>
+                    </div>
+                    <div className="contact-actions">
+                      <button className="contact-action" title="Audio call" onClick={() => startCall(connection)}>
+                        <Icon name="phone" size={14} />
+                      </button>
+                      <button className="contact-action video" title="Video call" onClick={() => startCall(connection)}>
+                        <Icon name="video" size={14} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-text-primary truncate">
-                      {connection.theirLabel || 'Unknown'}
-                    </p>
-                    <p className="text-xs text-text-tertiary truncate font-mono">
-                      {connection.id.slice(0, 16)}...
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => startCall(connection)}
-                    className="w-10 h-10 rounded-full bg-success-500 hover:bg-success-600 text-white flex items-center justify-center transition-colors flex-shrink-0"
-                    title="Start video call"
-                  >
-                    <VideoIcon className="w-5 h-5" />
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

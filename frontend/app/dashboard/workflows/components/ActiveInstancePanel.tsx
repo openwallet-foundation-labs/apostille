@@ -47,25 +47,23 @@ export function ActiveInstancePanel({
   // Empty state
   if (!instanceId) {
     return (
-      <div className="bg-surface-100 border border-border-primary/30 rounded-xl p-8 text-center">
-        <div className="w-16 h-16 rounded-full bg-surface-200 flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8 text-text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <div className="empty">
+        <div className="empty-icon">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="22" height="22">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
-        <h3 className="font-semibold text-text-primary mb-2">No Active Instance</h3>
-        <p className="text-sm text-text-tertiary max-w-md mx-auto">
-          Start a workflow from Quick Start above, or open an existing instance from the list below.
-        </p>
+        <div className="empty-title">No Active Instance</div>
+        <div className="empty-desc">Start a workflow from Quick Start above, or open an existing instance from the list below.</div>
       </div>
     )
   }
 
   return (
-    <div className="bg-surface-100 border border-border-primary/30 rounded-xl overflow-hidden">
+    <div className="card" style={{ overflow: 'hidden' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-border-primary/30 bg-surface-50">
+      <div className="card-header">
         <div className="flex items-center gap-4">
           <h2 className="font-semibold text-text-primary">Active Instance</h2>
 
@@ -75,8 +73,8 @@ export function ActiveInstancePanel({
               onClick={() => setAutoRefresh(!autoRefresh)}
               className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full transition-colors ${
                 autoRefresh
-                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                  : 'bg-surface-200 text-text-tertiary'
+                  ? 'badge green'
+                  : 'badge badge-gray'
               }`}
               title={autoRefresh ? 'Auto-refresh enabled' : 'Auto-refresh disabled'}
             >

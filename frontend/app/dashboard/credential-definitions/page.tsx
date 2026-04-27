@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { Icon } from '../../components/ui/Icons';
 import {
   credentialDefinitionApi,
   schemaApi,
@@ -829,96 +830,96 @@ export default function CredentialDefinitionsPage() {
     Boolean(selectedTemplateId) &&
     selectedTemplateAttributeCount < requiredAttributeCount;
 
+  // Compute format counts
+  const formatCounts: Record<string, number> = {};
+  credentialDefinitions.forEach(cd => {
+    const f = cd.format || 'anoncreds';
+    formatCounts[f] = (formatCounts[f] || 0) + 1;
+  });
+
   return (
-    <div className="space-y-6">
-      {/* Action Bar */}
-      <div className="flex justify-end">
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Credential Definitions</h1>
+          <p className="page-sub">Format bindings, revocation, and OCA branding.</p>
+        </div>
         <button className="btn btn-primary" onClick={openModal}>
-          Create Credential Definition
+          <Icon name="plus" size={14} /> Create Definition
         </button>
       </div>
 
       {error && (
-        <div className="alert alert-error">
-          <span>{error}</span>
+        <div className="alert alert-error" style={{ marginBottom: 16 }}><span>{error}</span></div>
+      )}
+
+      {/* Format stat cards */}
+      {!loading && credentialDefinitions.length > 0 && (
+        <div className="grid-3" style={{ marginBottom: 24 }}>
+          {[
+            { key: 'anoncreds', label: 'AnonCreds' },
+            { key: 'oid4vc', label: 'OID4VC' },
+            { key: 'mso_mdoc', label: 'MSO mDoc' },
+          ].map((fmt) => (
+            <div key={fmt.key} className="card card-pad" style={{ padding: '18px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Icon name="layers" size={16} style={{ color: 'var(--violet)' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)' }}>{fmt.label}</div>
+                  <div className="mono-dim" style={{ fontSize: 11 }}>format</div>
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--ink)' }}>
+                  {formatCounts[fmt.key] || 0}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
       {loading ? (
-        <div className="flex flex-col justify-center items-center py-12">
-          <div className="spinner h-12 w-12 mb-4"></div>
-          <p className="text-text-secondary">Loading credential definitions...</p>
-        </div>
+        <div className="empty"><div className="spinner" style={{ width: 32, height: 32 }} /></div>
       ) : credentialDefinitions.length > 0 ? (
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border-primary">
-              <thead className="bg-surface-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Credential Definition ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Schema</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Tag</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Format</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Created</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Actions</th>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Cred Def ID</th>
+                <th>Schema</th>
+                <th>Format</th>
+                <th>Tag</th>
+                <th>Created</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {credentialDefinitions.map((credDef) => (
+                <tr key={credDef.id}>
+                  <td><span className="mono" style={{ fontSize: 12 }}>{(credDef.credentialDefinitionId || credDef.id || '').slice(0, 30)}...</span></td>
+                  <td><span className="mono mono-dim" style={{ fontSize: 11.5 }}>{(credDef.schemaId || '').slice(0, 25)}...</span></td>
+                  <td>
+                    <span className="badge violet">
+                      {credDef.format === 'mso_mdoc' ? 'mDL/mdoc' : credDef.format === 'oid4vc' ? 'OID4VC' : 'AnonCreds'}
+                    </span>
+                  </td>
+                  <td><span className="tag">{credDef.tag || '—'}</span></td>
+                  <td><span className="mono-dim">{credDef.createdAt ? new Date(credDef.createdAt).toLocaleDateString() : '—'}</span></td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button className="btn btn-secondary btn-xs" onClick={() => openDetailsModal(credDef)}>Details</button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-border-primary">
-                {credentialDefinitions.map((credDef) => (
-                  <tr key={credDef.id} className="hover:bg-surface-200 transition-colors duration-200">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary font-mono truncate max-w-sm">{credDef.id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary font-mono truncate max-w-sm">{credDef.credentialDefinitionId}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary font-mono truncate max-w-sm">{credDef.schemaId}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="badge badge-primary">{credDef.tag}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`badge ${
-                        credDef.format === 'mso_mdoc'
-                          ? 'badge-success'
-                          : credDef.format === 'oid4vc'
-                          ? 'badge-info'
-                          : 'badge-secondary'
-                      }`}>
-                        {credDef.format === 'mso_mdoc'
-                          ? 'mDL/mdoc'
-                          : credDef.format === 'oid4vc'
-                          ? 'OID4VC'
-                          : 'AnonCreds'}
-                      </span>
-                      {credDef.format === 'mso_mdoc' && credDef.doctype && (
-                        <span className="ml-1 text-xs text-text-tertiary">
-                          ({credDef.doctype.split('.').pop()})
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                       {credDef.createdAt ? new Date(credDef.createdAt).toLocaleString() : 'N/A'}
-                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <button className="text-primary-600 hover:text-primary-700 font-medium transition-colors duration-200" onClick={() => openDetailsModal(credDef)}>
-                        View Details
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
-        <div className="empty-state-card">
-          <div className="empty-state-icon">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          </div>
-          <h3 className="empty-state-title">No credential definitions found</h3>
-          <p className="empty-state-description">Create your first credential definition to start issuing credentials.</p>
-          <div className="mt-6">
-            <button className="btn btn-primary" onClick={openModal}>
-              Create Your First Credential Definition
+        <div className="empty">
+          <div className="empty-icon"><Icon name="layers" size={22} /></div>
+          <div className="empty-title">No credential definitions found</div>
+          <div className="empty-desc">Create your first credential definition to start issuing credentials.</div>
+          <div className="empty-actions">
+            <button className="btn btn-primary" onClick={openModal}>Create Your First Definition
             </button>
           </div>
         </div>

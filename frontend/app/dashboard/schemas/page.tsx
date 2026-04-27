@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { schemaApi, didApi } from '../../../lib/api';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
+import { Icon } from '../../components/ui/Icons';
 
 interface Schema {
   id: string;
@@ -229,105 +230,71 @@ export default function SchemasPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Action Bar */}
-      <div className="flex justify-end">
-        <button
-          onClick={openModal}
-          className="btn btn-primary"
-        >
-          Create Schema
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Schemas</h1>
+          <p className="page-sub">Credential schemas and attribute definitions.</p>
+        </div>
+        <button onClick={openModal} className="btn btn-primary">
+          <Icon name="plus" size={14} /> Create Schema
         </button>
       </div>
 
       {error && (
-        <div className="alert alert-error">
-          <span>{error}</span>
-        </div>
+        <div className="alert alert-error" style={{ marginBottom: 16 }}><span>{error}</span></div>
       )}
 
       {loading ? (
-        <div className="flex flex-col justify-center items-center py-12">
-          <div className="spinner h-12 w-12 mb-4"></div>
-          <p className="text-text-secondary">Loading schemas...</p>
-        </div>
+        <div className="empty"><div className="spinner" style={{ width: 32, height: 32 }} /></div>
       ) : schemas.length > 0 ? (
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border-primary">
-              <thead className="bg-surface-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Schema ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Version</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Attributes</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Provider</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Actions</th>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Schema ID</th>
+                <th>Name</th>
+                <th>Version</th>
+                <th>Attributes</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {schemas.map((schema) => (
+                <tr key={schema.id}>
+                  <td><span className="mono" style={{ fontSize: 12 }}>{(schema.schemaId || schema.id || '').slice(0, 40)}...</span></td>
+                  <td style={{ fontWeight: 500, color: 'var(--ink)' }}>{schema.schema?.name}</td>
+                  <td><span className="tag">v{schema.schema?.version}</span></td>
+                  <td>
+                    {schema.schema?.attrNames ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {schema.schema.attrNames.slice(0, 3).map((attr: string, index: number) => (
+                          <span key={index} className="badge badge-primary">{attr}</span>
+                        ))}
+                        {schema.schema.attrNames.length > 3 && (
+                          <span className="badge badge-gray">+{schema.schema.attrNames.length - 3}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button onClick={() => openDetailsModal(schema)} className="btn btn-secondary btn-xs">View</button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-border-primary">
-                {schemas.map((schema) => (
-                  <tr key={schema.id} className="hover:bg-surface-200 transition-colors duration-200">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary truncate max-w-sm">{schema.id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary truncate max-w-sm">{schema.schemaId}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-primary font-medium">{schema.schema?.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="badge badge-gray">{schema.schema?.version}</span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-text-secondary">
-                      {schema.schema?.attrNames ? (
-                        <div className="flex flex-wrap gap-1">
-                          {schema.schema.attrNames.slice(0, 3).map((attr, index) => (
-                            <span key={index} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-300">
-                              {attr}
-                            </span>
-                          ))}
-                          {schema.schema.attrNames.length > 3 && (
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-surface-300 text-text-tertiary">
-                              +{schema.schema.attrNames.length - 3}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-text-tertiary italic">No attributes</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`badge ${
-                        schema.methodName === 'cheqd' ? 'badge-success' : 'badge-primary'
-                      }`}>
-                        {schema.methodName}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <button 
-                        onClick={() => openDetailsModal(schema)}
-                        className="text-primary-600 hover:text-primary-700 font-medium transition-colors duration-200"
-                      >
-                        View Details
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
-        <div className="empty-state-card">
-          <div className="empty-state-icon">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-            </svg>
-          </div>
-          <h3 className="empty-state-title">No schemas found</h3>
-          <p className="empty-state-description">Create your first schema to get started with credential definitions.</p>
-          <div className="mt-6">
-            <button
-              onClick={openModal}
-              className="btn btn-primary"
-            >
+        <div className="empty">
+          <div className="empty-icon"><Icon name="database" size={22} /></div>
+          <div className="empty-title">No schemas found</div>
+          <div className="empty-desc">Create your first schema to get started with credential definitions.</div>
+          <div className="empty-actions">
+            <button onClick={openModal} className="btn btn-primary">
               Create Your First Schema
             </button>
           </div>

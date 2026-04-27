@@ -211,21 +211,24 @@ export default function OID4VCIPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {error && (
-        <div className="bg-error-100 border border-error-300 text-error-700 px-4 py-3 rounded-lg">
-          {error}
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Issue (OID4VCI)</h1>
+          <p className="page-sub">Create credential offers with QR codes for wallet scanning.</p>
         </div>
+      </div>
+
+      {error && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }}><span>{error}</span></div>
       )}
 
       {loading ? (
-        <div className="flex flex-col justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mb-4"></div>
-          <p className="text-text-secondary">Loading credential definitions...</p>
-        </div>
+        <div className="empty"><div className="spinner" style={{ width: 32, height: 32 }} /></div>
       ) : currentOffer ? (
         /* Offer Display */
-        <div className="card p-6">
+        <div>
           <div className="flex justify-between items-start mb-6">
             <div>
               <h2 className="text-lg font-semibold text-text-primary">Credential Offer</h2>
@@ -250,7 +253,7 @@ export default function OID4VCIPage() {
 
               {/* TX Code */}
               {currentOffer.txCode && (
-                <div className="mt-4 p-3 bg-primary-100 border border-primary-300 rounded-lg text-center">
+                <div className="mt-4 p-3 rounded-lg text-center" style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent-border)' }}>
                   <p className="text-sm text-primary-700 font-medium">Transaction Code</p>
                   <p className="text-2xl font-mono font-bold text-primary-800 tracking-widest mt-1">
                     {currentOffer.txCode}
@@ -314,7 +317,7 @@ export default function OID4VCIPage() {
         </div>
       ) : credDefs.length === 0 ? (
         /* Empty State */
-        <div className="card p-8 text-center">
+        <div style={{ padding: 32, textAlign: 'center' }}>
           <div className="w-16 h-16 bg-surface-200 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -333,7 +336,7 @@ export default function OID4VCIPage() {
         </div>
       ) : (
         /* Create Offer Form */
-        <form onSubmit={handleCreateOffer} className="card p-6">
+        <form onSubmit={handleCreateOffer} style={{ padding: 0 }}>
           <h2 className="text-lg font-semibold text-text-primary mb-4">Create Credential Offer</h2>
 
           {/* Credential Definition Selector */}

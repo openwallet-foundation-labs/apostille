@@ -81,14 +81,14 @@ export function InstancesTable({
   const completedCount = instances.filter(i => i.status === 'completed' || i.state === 'done').length
 
   return (
-    <div className="bg-surface-100 border border-border-primary/30 rounded-xl overflow-hidden">
+    <div className="card" style={{ overflow: 'hidden' }}>
       {/* Header */}
       <div
-        className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-surface-50 transition-colors"
+        className="card-header cursor-pointer"
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-surface-200 text-text-secondary flex items-center justify-center">
+          <div className="template-icon">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
             </svg>
@@ -129,8 +129,8 @@ export function InstancesTable({
                 }}
                 className={`text-xs px-3 py-1 rounded-full transition-colors ${
                   filter === f
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-surface-200 text-text-secondary hover:bg-surface-300'
+                    ? 'btn btn-primary btn-xs'
+                    : 'btn btn-secondary btn-xs'
                 }`}
               >
                 {f.charAt(0).toUpperCase() + f.slice(1)}
@@ -183,8 +183,8 @@ export function InstancesTable({
                         key={instance.id}
                         className={`transition-colors ${
                           isActive
-                            ? 'bg-primary-50/50 dark:bg-primary-900/20'
-                            : 'hover:bg-surface-50'
+                            ? ''
+                            : ''
                         }`}
                       >
                         <td className="px-5 py-4">

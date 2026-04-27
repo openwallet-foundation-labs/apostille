@@ -20,7 +20,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Load theme from localStorage
-    const storedTheme = localStorage.getItem('theme') as Theme | null;
+    const storedTheme = localStorage.getItem('essi-theme') as Theme | null;
     if (storedTheme) {
       setTheme(storedTheme);
     }
@@ -40,11 +40,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
       // Update document class for theme switching
       const root = document.documentElement;
-      root.classList.remove('light', 'dark');
-      root.classList.add(newActualTheme);
+      root.setAttribute('data-theme', newActualTheme);
 
       // Store theme preference
-      localStorage.setItem('theme', theme);
+      localStorage.setItem('essi-theme', theme);
     };
 
     updateTheme();
@@ -170,7 +169,7 @@ export function ColorSchemeUpdater() {
 
     // Update the theme-color meta tag
     const themeColorTag = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement;
-    const themeColor = actualTheme === 'dark' ? '#0f172a' : '#f8fafc';
+    const themeColor = actualTheme === 'dark' ? '#0B0B0D' : '#FAFAF9';
     if (themeColorTag) {
       themeColorTag.content = themeColor;
     } else {

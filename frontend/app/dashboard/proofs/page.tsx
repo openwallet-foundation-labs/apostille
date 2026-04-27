@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { proofApi, connectionApi, credentialApi, credentialDefinitionApi, schemaApi } from '../../../lib/api';
+import { Icon } from '../../components/ui/Icons';
 
 interface Proof {
   id: string;
@@ -889,104 +890,84 @@ export default function ProofsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Action Bar */}
-      <div className="flex justify-end">
-        <button
-          onClick={openRequestModal}
-          className="btn btn-primary"
-        >
-          Request Proof
-        </button>
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Proofs</h1>
+          <p className="page-sub">Verifiable presentations and selective disclosure exchanges.</p>
+        </div>
+        <button onClick={openRequestModal} className="btn btn-primary">New proof request</button>
       </div>
 
       {error && (
-        <div className="alert alert-error">
-          <span>{error}</span>
-        </div>
+        <div className="alert alert-error" style={{ marginBottom: 16 }}><span>{error}</span></div>
       )}
 
       {loading ? (
-        <div className="flex flex-col justify-center items-center py-12">
-          <div className="spinner h-12 w-12 mb-4"></div>
-          <p className="text-text-secondary">Loading proofs...</p>
-        </div>
+        <div className="empty"><div className="spinner" style={{ width: 32, height: 32 }} /></div>
       ) : proofs.length > 0 ? (
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border-primary">
-              <thead className="bg-surface-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">State</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Created At</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Connection</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Verified</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Actions</th>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Session</th>
+                <th>Holder</th>
+                <th>State</th>
+                <th>Verified</th>
+                <th>When</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {proofs.map((proof) => (
+                <tr
+                  key={proof.id}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => openDetailsModal(proof.id)}
+                >
+                  <td><span className="mono" style={{ fontSize: 12 }}>{proof.id.slice(0, 20)}...</span></td>
+                  <td>
+                    {getConnectionLabel(proof.connectionId)}
+                  </td>
+                  <td>{renderProofStateBadge(proof.state)}</td>
+                  <td>
+                    {proof.isVerified === true
+                      ? <span className="badge green"><span className="badge-dot" /> verified</span>
+                      : proof.isVerified === false
+                        ? <span className="badge red"><span className="badge-dot" /> failed</span>
+                        : <span className="muted">—</span>}
+                  </td>
+                  <td><span className="mono-dim">{new Date(proof.createdAt).toLocaleDateString()}</span></td>
+                  <td style={{ textAlign: 'right' }}>
+                    {proof.state === 'request-received' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openAcceptModal(proof.id); }}
+                        className="btn btn-secondary btn-xs"
+                      >
+                        Respond
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openDetailsModal(proof.id); }}
+                      className="btn btn-secondary btn-xs"
+                      style={{ marginLeft: 4 }}
+                    >
+                      Open
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-border-primary">
-                {proofs.map((proof) => (
-                  <tr
-                    key={proof.id}
-                    className="hover:bg-surface-200 cursor-pointer transition-colors duration-200"
-                    onClick={() => openDetailsModal(proof.id)}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-primary font-mono truncate max-w-sm">{proof.id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {renderProofStateBadge(proof.state)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                      {new Date(proof.createdAt).toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                      {getConnectionLabel(proof.connectionId)}
-                      <span className="block text-xs text-text-tertiary truncate max-w-sm">
-                        {proof.connectionId}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                      {proof.isVerified === true
-                        ? '✅ Yes'
-                        : proof.isVerified === false
-                          ? '❌ No'
-                          : '—'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                      {proof.state === 'request-received' && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openAcceptModal(proof.id);
-                          }}
-                          className="text-primary-600 hover:text-primary-700 font-medium transition-colors duration-200"
-                        >
-                          Respond
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
-        <div className="empty-state-card">
-          <div className="empty-state-icon">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h3 className="empty-state-title">No proof requests found</h3>
-          <p className="empty-state-description">You can request proofs from or provide proofs to your connections.</p>
-          <div className="mt-6">
-            <button
-              onClick={openRequestModal}
-              className="btn btn-primary"
-            >
-              Request Your First Proof
-            </button>
+        <div className="empty">
+          <div className="empty-icon"><Icon name="shieldCheck" size={22} /></div>
+          <div className="empty-title">No proof requests found</div>
+          <div className="empty-desc">You can request proofs from or provide proofs to your connections.</div>
+          <div className="empty-actions">
+            <button onClick={openRequestModal} className="btn btn-primary">Request Your First Proof</button>
           </div>
         </div>
       )}
@@ -1001,9 +982,7 @@ export default function ProofsPage() {
                 onClick={closeRequestModal}
                 className="modal-close-button"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <Icon name="close" size={18} />
               </button>
             </div>
 
@@ -1193,9 +1172,7 @@ export default function ProofsPage() {
                 onClick={closeAcceptModal}
                 className="modal-close-button"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <Icon name="close" size={18} />
               </button>
             </div>
 
@@ -1302,9 +1279,7 @@ export default function ProofsPage() {
                 onClick={closeDetailsModal}
                 className="modal-close-button"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <Icon name="close" size={18} />
               </button>
             </div>
 

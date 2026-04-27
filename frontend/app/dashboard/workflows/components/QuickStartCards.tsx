@@ -80,11 +80,11 @@ function TemplateCard({
   }
 
   return (
-    <div className="bg-surface-100 border border-border-primary/30 rounded-xl p-4 hover:shadow-lg hover:border-primary-500/50 transition-all duration-200 group flex flex-col">
+    <div className="template group flex flex-col">
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary-100 dark:bg-primary-900/40 text-primary-600 dark:text-primary-400 flex items-center justify-center">
+          <div className="template-icon">
             {getTemplateIcon(template.template_id)}
           </div>
           <div>
@@ -161,40 +161,11 @@ export function QuickStartCards({
   const [isCollapsed, setIsCollapsed] = useState(false)
 
   return (
-    <div className="bg-gradient-to-br from-primary-50/50 to-surface-100 dark:from-primary-950/30 dark:to-surface-100 border border-primary-200/30 dark:border-primary-800/30 rounded-2xl overflow-hidden">
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-primary-50/30 dark:hover:bg-primary-950/20 transition-colors"
-        onClick={() => setIsCollapsed(!isCollapsed)}
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary-600 text-white flex items-center justify-center">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="font-semibold text-text-primary">Quick Start</h2>
-            <p className="text-xs text-text-tertiary">Select a template and start a workflow</p>
-          </div>
-        </div>
-        <button className="text-text-tertiary hover:text-text-primary p-1">
-          <svg
-            className={`w-5 h-5 transition-transform ${isCollapsed ? '' : 'rotate-180'}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      </div>
-
-      {/* Content */}
+    <div>
+      {/* Template Cards Grid */}
       {!isCollapsed && (
-        <div className="px-5 pb-5">
-          {/* Template Cards Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <div>
+          <div className="template-grid" style={{ marginBottom: 16 }}>
             {templates.map((template) => (
               <TemplateCard
                 key={template.template_id}
@@ -208,14 +179,8 @@ export function QuickStartCards({
           </div>
 
           {/* Create Custom Button */}
-          <button
-            onClick={onCreateCustom}
-            className="w-full py-3 border-2 border-dashed border-border-primary/50 rounded-xl text-text-tertiary hover:text-primary-600 hover:border-primary-500/50 transition-colors flex items-center justify-center gap-2 text-sm"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Create Custom Template
+          <button onClick={onCreateCustom} className="filter-chip" style={{ width: '100%', justifyContent: 'center', height: 36 }}>
+            + Create Custom Template
           </button>
         </div>
       )}

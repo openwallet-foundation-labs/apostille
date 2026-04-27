@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { credentialApi, credentialDefinitionApi, connectionApi, schemaApi } from '../../../lib/api';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
+import { Icon } from '../../components/ui/Icons';
 
 interface Credential {
   id: string;
@@ -333,81 +334,68 @@ export default function CredentialsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Action Bar */}
-      <div className="flex justify-end">
-        <button
-          onClick={openIssueModal}
-          className="btn btn-primary"
-        >
-          Issue Credential
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Credentials</h1>
+          <p className="page-sub">Issue, hold, and revoke verifiable credentials over DIDComm.</p>
+        </div>
+        <button onClick={openIssueModal} className="btn btn-primary">
+          <Icon name="plus" size={14} /> Issue Credential
         </button>
       </div>
 
       {error && (
-        <div className="alert alert-error">
-          <span>{error}</span>
-        </div>
+        <div className="alert alert-error" style={{ marginBottom: 16 }}><span>{error}</span></div>
       )}
 
       {loading ? (
-        <div className="flex flex-col justify-center items-center py-12">
-          <div className="spinner h-12 w-12 mb-4"></div>
-          <p className="text-text-secondary">Loading credentials...</p>
-        </div>
+        <div className="empty"><div className="spinner" style={{ width: 32, height: 32 }} /></div>
       ) : credentials.length > 0 ? (
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border-primary">
-              <thead className="bg-surface-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">State</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Created At</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Connection</th>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Credential</th>
+                <th>State</th>
+                <th>Created</th>
+                <th>Connection</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {credentials.map((credential) => (
+                <tr key={credential.id} style={{ cursor: 'pointer' }} onClick={() => openDetailsModal(credential)}>
+                  <td>
+                    <span className="mono" style={{ fontSize: 12 }}>{credential.id.slice(0, 28)}...</span>
+                  </td>
+                  <td>
+                    <span className={`badge ${
+                      credential.state === 'offer-received' ? 'amber' :
+                      credential.state === 'done' ? 'green' : 'blue'
+                    }`}>
+                      <span className="badge-dot" />
+                      {credential.state}
+                    </span>
+                  </td>
+                  <td><span className="mono-dim">{new Date(credential.createdAt).toLocaleDateString()}</span></td>
+                  <td><span className="mono-dim" style={{ fontSize: 11.5 }}>{(credential.connectionId || '').slice(0, 20)}...</span></td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button onClick={(e) => { e.stopPropagation(); openDetailsModal(credential); }} className="btn btn-secondary btn-xs">View</button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-border-primary">
-                {credentials.map((credential) => (
-                  <tr key={credential.id} 
-                      className="hover:bg-surface-200 cursor-pointer transition-colors duration-200" 
-                      onClick={() => openDetailsModal(credential)}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary truncate max-w-sm">{credential.id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`badge ${
-                        credential.state === 'offer-received' ? 'badge-warning' :
-                        credential.state === 'done' ? 'badge-success' :
-                        'badge-primary'
-                      }`}>
-                        {credential.state}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                      {new Date(credential.createdAt).toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary truncate max-w-sm">{credential.connectionId}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
-        <div className="empty-state-card">
-          <div className="empty-state-icon">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-            </svg>
-          </div>
-          <h3 className="empty-state-title">No credentials found</h3>
-          <p className="empty-state-description">You can issue or receive credentials after creating connections.</p>
-          <div className="mt-6">
-            <button
-              onClick={openIssueModal}
-              className="btn btn-primary"
-            >
-              Issue Your First Credential
-            </button>
+        <div className="empty">
+          <div className="empty-icon"><Icon name="badge" size={22} /></div>
+          <div className="empty-title">No credentials found</div>
+          <div className="empty-desc">You can issue or receive credentials after creating connections.</div>
+          <div className="empty-actions">
+            <button onClick={openIssueModal} className="btn btn-primary">Issue Your First Credential</button>
           </div>
         </div>
       )}
@@ -422,9 +410,7 @@ export default function CredentialsPage() {
                 onClick={closeIssueModal}
                 className="modal-close-button"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <Icon name="close" size={18} />
               </button>
             </div>
             

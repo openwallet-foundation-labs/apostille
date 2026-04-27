@@ -77,27 +77,21 @@ export default function BadgesPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Action Bar */}
-      <div className="flex justify-end gap-3">
-        <button
-          onClick={() => setIsVerifyModalOpen(true)}
-          className="btn btn-secondary flex items-center gap-2"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          Verify Badge
-        </button>
-        <button
-          onClick={() => setIsIssueModalOpen(true)}
-          className="btn btn-primary flex items-center gap-2"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Issue Badge
-        </button>
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">OpenBadges</h1>
+          <p className="page-sub">Issue and verify OBv3 credentials.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setIsVerifyModalOpen(true)} className="btn btn-secondary">
+            Verify Badge
+          </button>
+          <button onClick={() => setIsIssueModalOpen(true)} className="btn btn-primary">
+            Issue Badge
+          </button>
+        </div>
       </div>
 
       {/* Issuer Profile Card */}

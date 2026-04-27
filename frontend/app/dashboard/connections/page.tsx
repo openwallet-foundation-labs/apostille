@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
 import { connectionApi } from '@/lib/api';
 import { useNotifications } from '../../context/NotificationContext';
+import { Icon } from '../../components/ui/Icons';
 import QRScanner from '../../components/QRScanner';
 interface Connection {
   id: string;
@@ -551,37 +552,63 @@ export default function ConnectionsPage() {
     return message.role === 'sender';
   };
 
+  const AVATAR_CLASSES = ['a1','a2','a3','a4','a5','a6'];
+  const getAvatar = (name: string, idx: number) => {
+    const cls = AVATAR_CLASSES[idx % AVATAR_CLASSES.length];
+    const initials = (name || '??').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+    return <span className={`avatar ${cls}`}>{initials}</span>;
+  };
+
+  // Compute stats
+  const totalConns = connections.length;
+  const activeConns = connections.filter(c => c.state === 'completed' || c.state === 'complete').length;
+  const kemReady = Object.values(kemStatuses).filter(s => s.ready).length;
+  const pendingConns = connections.filter(c => c.state !== 'completed' && c.state !== 'complete').length;
+
   return (
-    <div className="space-y-6">
-      {/* Action Bar */}
-      <div className="flex justify-end items-center gap-3">
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Connections</h1>
+          <p className="page-sub">DIDComm peers, key exchange status, and message routing.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setShowAcceptForm(!showAcceptForm)} className="btn btn-secondary">
+            <Icon name="qr" size={14} /> {showAcceptForm ? 'Hide' : 'Accept Invitation'}
+          </button>
+          <button onClick={handleCreateInvitation} disabled={isCreatingInvitation} className="btn btn-primary">
+            {isCreatingInvitation ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Creating...</> : <><Icon name="plus" size={14} /> Create Invitation</>}
+          </button>
+        </div>
+      </div>
+
+      {/* Stat grid */}
+      <div className="stat-grid" style={{ marginBottom: 20 }}>
+        {[
+          { label: 'Total', value: totalConns, foot: 'all peers' },
+          { label: 'Active', value: activeConns, foot: 'completed state' },
+          { label: 'KEM Encrypted', value: kemReady, foot: 'PQ-secure' },
+          { label: 'Pending', value: pendingConns, foot: 'awaiting response' },
+        ].map(s => (
+          <div key={s.label} className="stat">
+            <div className="stat-label">{s.label}</div>
+            <div className="stat-value" style={{ fontSize: 24, marginTop: 8 }}>{s.value}</div>
+            <div className="stat-foot">{s.foot}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Invitation label input */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <input
           type="text"
           placeholder="Invitation label (optional)"
           value={invitationLabel}
           onChange={(e) => setInvitationLabel(e.target.value)}
-          className="input min-w-[220px]"
+          className="input"
+          style={{ maxWidth: 280 }}
         />
-        <button
-          onClick={handleCreateInvitation}
-          disabled={isCreatingInvitation}
-          className="btn btn-primary"
-        >
-          {isCreatingInvitation ? (
-            <>
-              <span className="spinner h-4 w-4 mr-2"></span>
-              Creating...
-            </>
-          ) : (
-            'Create Invitation'
-          )}
-        </button>
-        <button
-          onClick={() => setShowAcceptForm(!showAcceptForm)}
-          className="btn btn-secondary"
-        >
-          {showAcceptForm ? 'Hide Accept Form' : 'Accept Invitation'}
-        </button>
       </div>
 
       {error && (
@@ -874,208 +901,93 @@ export default function ConnectionsPage() {
       )}
 
       {isLoading ? (
-        <div className="animate-pulse space-y-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-24 bg-slate-200 rounded-lg"></div>
-          ))}
-        </div>
+        <div className="empty"><div className="spinner" style={{ width: 32, height: 32 }} /></div>
       ) : connections.length === 0 ? (
-        <div className="empty-state-card">
-          <div className="empty-state-icon">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-          </div>
-          <h3 className="empty-state-title">No Connections Found</h3>
-          <p className="empty-state-description">
-            You don't have any connections yet. Create an invitation to connect with other agents.
-          </p>
-          <div className="mt-6">
-            <button
-              onClick={handleCreateInvitation}
-              disabled={isCreatingInvitation}
-              className="btn btn-primary"
-            >
-              {isCreatingInvitation ? (
-                <>
-                  <span className="spinner h-4 w-4 mr-2"></span>
-                  Creating...
-                </>
-              ) : (
-                'Create Your First Connection'
-              )}
+        <div className="empty">
+          <div className="empty-icon"><Icon name="link" size={22} /></div>
+          <div className="empty-title">No Connections Found</div>
+          <div className="empty-desc">Create an invitation to connect with other agents.</div>
+          <div className="empty-actions">
+            <button onClick={handleCreateInvitation} disabled={isCreatingInvitation} className="btn btn-primary">
+              Create Your First Connection
             </button>
           </div>
         </div>
       ) : (
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border-primary">
-              <thead className="bg-surface-200">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                    ID / Created
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                    Label
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                    State
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                    Encryption
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                    Role
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-primary">
-                {connections.map((connection) => (
-                  <tr key={connection.id} className="hover:bg-surface-200 transition-colors duration-200">
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-text-primary truncate max-w-xs font-mono">
-                        {connection.id}
-                      </div>
-                      <div className="text-xs text-text-secondary">
-                        {new Date(connection.createdAt).toLocaleString()}
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th style={{ width: '30%' }}>ID / Label</th>
+                <th>State</th>
+                <th>Encryption</th>
+                <th>Role</th>
+                <th>Created</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {connections.map((connection, idx) => {
+                const label = connection.theirLabel || connection.label || 'Unknown';
+                const status = kemStatuses[connection.id];
+                const isComplete = connection.state === 'completed' || connection.state === 'complete';
+                return (
+                  <tr key={connection.id}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {getAvatar(label, idx)}
+                        <div>
+                          <div style={{ fontWeight: 500, color: 'var(--ink)' }}>{label}</div>
+                          <div className="mono-dim" style={{ fontSize: '11.5px' }}>{connection.id.slice(0, 28)}...</div>
+                        </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-text-primary font-medium">
-                        {connection.theirLabel || connection.label || 'Unknown'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
+                    <td>
                       <span className={`badge ${getStateBadgeColor(connection.state)}`}>
+                        <span className="badge-dot" />
                         {connection.state}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                      {(connection.state === 'completed' || connection.state === 'complete') ? (
-                        (() => {
-                          const status = kemStatuses[connection.id];
-                          if (!status) {
-                            return <span className="text-text-tertiary text-sm">Loading...</span>;
-                          }
-                          if (status.ready) {
-                            return (
-                              <span className="inline-flex items-center text-success-600 text-sm font-medium">
-                                <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                                </svg>
-                                Ready
-                              </span>
-                            );
-                          }
-                          if (status.hasPendingRequest) {
-                            return (
-                              <span className="inline-flex items-center text-primary-600 text-sm font-medium">
-                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                                </svg>
-                                Pending Request
-                              </span>
-                            );
-                          }
-                          if (status.hasLocalKey && !status.hasPeerKey) {
-                            return (
-                              <span className="inline-flex items-center text-warning-600 text-sm">
-                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                Awaiting Peer
-                              </span>
-                            );
-                          }
-                          return (
-                            <span className="inline-flex items-center text-text-tertiary text-sm">
-                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                              </svg>
-                              Not Set
-                            </span>
-                          );
-                        })()
+                    <td>
+                      {isComplete ? (
+                        !status ? <span className="muted" style={{ fontSize: 12 }}>Loading...</span> :
+                        status.ready ? <span className="badge violet"><Icon name="lock" size={11} style={{ marginRight: 3 }} /> KEM-Active</span> :
+                        status.hasPendingRequest ? <span className="badge amber"><span className="badge-dot" /> Pending Request</span> :
+                        status.hasLocalKey ? <span className="badge amber"><span className="badge-dot" /> Awaiting Peer</span> :
+                        <span className="muted" style={{ fontSize: 12 }}>—</span>
                       ) : (
-                        <span className="text-text-tertiary text-sm">-</span>
+                        <span className="muted" style={{ fontSize: 12 }}>—</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-sm text-text-secondary">
-                      {connection.role}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-medium">
-                      <div className="flex space-x-3">
+                    <td style={{ textTransform: 'capitalize' }}>{connection.role}</td>
+                    <td><span className="mono-dim">{new Date(connection.createdAt).toLocaleDateString()}</span></td>
+                    <td style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                         {connection.state === 'await-response' && connection.url && (
-                          <button
-                            onClick={() => showQrCodeForConnection(connection)}
-                            className="text-primary-600 hover:text-primary-700 transition-colors duration-200"
-                          >
-                            Show QR
+                          <button onClick={() => showQrCodeForConnection(connection)} className="btn btn-secondary btn-xs">Show QR</button>
+                        )}
+                        {isComplete && status?.hasPendingRequest && (
+                          <button onClick={() => handleAcceptKeyExchange(connection.id)} disabled={acceptingKeys[connection.id]} className="btn btn-secondary btn-xs">
+                            {acceptingKeys[connection.id] ? 'Accepting...' : 'Accept Key Exchange'}
                           </button>
                         )}
-                        {(connection.state === 'completed' || connection.state === 'complete') && (
-                          <>
-                            {kemStatuses[connection.id]?.hasPendingRequest && (
-                              <button
-                                onClick={() => handleAcceptKeyExchange(connection.id)}
-                                disabled={acceptingKeys[connection.id]}
-                                className={`text-sm px-2 py-1 rounded transition-colors duration-200 ${
-                                  acceptingKeys[connection.id]
-                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                    : 'bg-success-100 text-success-700 hover:bg-success-200'
-                                }`}
-                              >
-                                {acceptingKeys[connection.id] ? (
-                                  <span className="flex items-center">
-                                    <span className="spinner h-3 w-3 mr-1"></span>
-                                    Accepting...
-                                  </span>
-                                ) : (
-                                  'Accept Key Exchange'
-                                )}
-                              </button>
-                            )}
-                            {(!kemStatuses[connection.id]?.ready && !kemStatuses[connection.id]?.hasPendingRequest) && (
-                              <button
-                                onClick={() => handleExchangeKeys(connection.id)}
-                                disabled={exchangingKeys[connection.id] || kemStatuses[connection.id]?.hasLocalKey}
-                                className={`text-sm px-2 py-1 rounded transition-colors duration-200 ${
-                                  exchangingKeys[connection.id] || kemStatuses[connection.id]?.hasLocalKey
-                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                    : 'bg-primary-100 text-primary-700 hover:bg-primary-200'
-                                }`}
-                              >
-                                {exchangingKeys[connection.id] ? (
-                                  <span className="flex items-center">
-                                    <span className="spinner h-3 w-3 mr-1"></span>
-                                    Exchanging...
-                                  </span>
-                                ) : kemStatuses[connection.id]?.hasLocalKey ? (
-                                  'Awaiting Peer'
-                                ) : (
-                                  'Exchange Keys'
-                                )}
-                              </button>
-                            )}
-                          </>
+                        {isComplete && !status?.ready && !status?.hasPendingRequest && (
+                          <button
+                            onClick={() => handleExchangeKeys(connection.id)}
+                            disabled={exchangingKeys[connection.id] || status?.hasLocalKey}
+                            className="btn btn-secondary btn-xs"
+                          >
+                            {exchangingKeys[connection.id] ? 'Exchanging...' : status?.hasLocalKey ? 'Awaiting Peer' : 'Exchange Keys'}
+                          </button>
                         )}
-                        <button
-                          onClick={() => openMessageModal(connection)}
-                          className="text-success-600 hover:text-success-700 transition-colors duration-200"
-                        >
-                          Messages
-                        </button>
+                        <button onClick={() => openMessageModal(connection)} className="btn btn-secondary btn-xs">Messages</button>
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

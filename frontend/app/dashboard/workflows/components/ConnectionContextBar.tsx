@@ -46,7 +46,7 @@ export function ConnectionContextBar({
   }
 
   return (
-    <div className="bg-surface-100 border border-border-primary/30 rounded-xl p-4">
+    <div className="card card-pad">
       <div className="flex flex-wrap items-center gap-4">
         {/* Connection Label */}
         <div className="flex items-center gap-2">
@@ -67,7 +67,8 @@ export function ConnectionContextBar({
               <select
                 value={selectedConnectionId}
                 onChange={(e) => onConnectionChange(e.target.value)}
-                className="appearance-none bg-surface-200 border border-border-primary/40 rounded-lg pl-8 pr-10 py-2 text-sm font-medium text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500/50 min-w-[200px]"
+                className="input"
+                style={{ paddingLeft: 32, minWidth: 200 }}
               >
                 <option value="">Select connection...</option>
                 {connections.map((c) => (

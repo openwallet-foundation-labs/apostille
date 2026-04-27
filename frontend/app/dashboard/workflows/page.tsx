@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { workflowApi, connectionApi, credentialDefinitionApi } from '@/lib/api'
 import { useAuth } from '../../context/AuthContext'
+import { Icon } from '../../components/ui/Icons'
 import { runtimeConfig } from '@/lib/runtimeConfig'
 import {
   WorkflowProvider,
@@ -456,26 +457,34 @@ function WorkflowsContent() {
   // ============================================================================
 
   return (
-    <div className="space-y-6">
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Workflows</h1>
+          <p className="page-sub">Templated state machines for multi-party credential exchange.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleDiscover} disabled={discovering} className="btn btn-secondary">
+            Discover
+          </button>
+          <button onClick={() => { setTemplateJson(JSON.stringify(applicationApprovalTemplate, null, 2)); setShowBuilder(true) }} className="btn btn-primary">
+            New Template
+          </button>
+        </div>
+      </div>
+
       {/* Alerts */}
       {error && (
-        <div className="alert alert-error">
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span className="flex-1">{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-error-600 hover:text-error-800 p-1 hover:bg-error-100 rounded">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+        <div className="alert alert-error" style={{ marginBottom: 16 }}>
+          <span style={{ flex: 1 }}>{error}</span>
+          <button onClick={() => setError(null)} className="btn btn-ghost btn-icon btn-sm" style={{ marginLeft: 'auto' }}>
+            <Icon name="close" size={14} />
           </button>
         </div>
       )}
       {success && (
-        <div className="alert alert-success">
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+        <div className="alert alert-success" style={{ marginBottom: 16 }}>
           <span>{success}</span>
         </div>
       )}
@@ -492,6 +501,7 @@ function WorkflowsContent() {
       />
 
       {/* Quick Start Cards */}
+      <div className="section-title">Quick Start</div>
       <QuickStartCards
         templates={PRESET_TEMPLATES as any}
         onStart={handleStartWorkflow}
@@ -557,16 +567,16 @@ function WorkflowsContent() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/50"
             onClick={() => setShowBuilder(false)}
           />
 
           {/* Modal */}
-          <div className="relative w-full max-w-7xl h-[90vh] mx-4 bg-surface-100 rounded-xl shadow-2xl border border-border-primary/30 flex flex-col overflow-hidden">
+          <div className="relative w-full max-w-7xl h-[90vh] mx-4 flex flex-col overflow-hidden" style={{ background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border-primary/30 bg-surface-50">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-primary-100 dark:bg-primary-900/40 text-primary-600 dark:text-primary-400 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent-soft)', color: 'var(--accent-ink)' }}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />

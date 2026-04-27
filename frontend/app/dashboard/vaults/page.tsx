@@ -212,12 +212,12 @@ export default function VaultsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div>
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="page-header">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">Encrypted Vaults</h1>
-          <p className="text-text-secondary">Secure storage for your files with end-to-end encryption</p>
+          <h1 className="page-title">Encrypted Vaults</h1>
+          <p className="page-sub">Secure storage for your files with end-to-end encryption.</p>
         </div>
         <button
           onClick={() => setShowUploadModal(true)}
@@ -228,16 +228,17 @@ export default function VaultsPage() {
       </div>
 
       {/* Vaults List */}
-      <div className="card overflow-hidden">
-        {vaults.length === 0 ? (
-          <div className="px-6 py-12 text-center text-text-secondary">
-            <svg className="mx-auto h-12 w-12 text-text-tertiary mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
-            <p className="text-lg font-medium">No vaults yet</p>
-            <p className="mt-1">Create your first encrypted vault to securely store files.</p>
+      {vaults.length === 0 ? (
+        <div className="empty">
+          <div className="empty-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="22" height="22"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg></div>
+          <div className="empty-title">No vaults yet</div>
+          <div className="empty-desc">Create your first encrypted vault to securely store files.</div>
+          <div className="empty-actions">
+            <button onClick={() => setShowUploadModal(true)} className="btn btn-primary">+ Create Vault</button>
           </div>
-        ) : (
+        </div>
+      ) : (
+        <div className="card overflow-hidden">
           <div className="divide-y divide-border-secondary">
             {vaults.map((vault) => (
               <div
@@ -306,8 +307,8 @@ export default function VaultsPage() {
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Upload Modal */}
       {showUploadModal && (

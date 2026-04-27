@@ -57,8 +57,8 @@ export default function ForgotPasswordPage() {
       <div className="max-w-md w-full space-y-8">
         {/* Header */}
         <div className="text-center animate-fade-in">
-          <div className="mx-auto h-16 w-16 bg-primary-600 rounded-2xl flex items-center justify-center mb-6 shadow-apple">
-            <SecurityIcon className="w-8 h-8 text-white" />
+          <div className="auth-icon">
+            <SecurityIcon className="w-6 h-6" />
           </div>
           <h2 className="text-3xl font-bold text-text-primary mb-2">
             Forgot your password?

@@ -199,21 +199,24 @@ export default function OID4VPPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {error && (
-        <div className="bg-error-100 border border-error-300 text-error-700 px-4 py-3 rounded-lg">
-          {error}
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Verify (OID4VP)</h1>
+          <p className="page-sub">Request verifiable presentations via QR code.</p>
         </div>
+      </div>
+
+      {error && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }}><span>{error}</span></div>
       )}
 
       {loading ? (
-        <div className="flex flex-col justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mb-4"></div>
-          <p className="text-text-secondary">Loading credential types...</p>
-        </div>
+        <div className="empty"><div className="spinner" style={{ width: 32, height: 32 }} /></div>
       ) : currentSession ? (
         /* Session Display */
-        <div className="card p-6">
+        <div>
           <div className="flex justify-between items-start mb-6">
             <div>
               <h2 className="text-lg font-semibold text-text-primary">Verification Request</h2>
@@ -341,7 +344,7 @@ export default function OID4VPPage() {
         </div>
       ) : credDefs.length === 0 ? (
         /* Empty State */
-        <div className="card p-8 text-center">
+        <div style={{ padding: 32, textAlign: 'center' }}>
           <div className="w-16 h-16 bg-surface-200 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -360,7 +363,7 @@ export default function OID4VPPage() {
         </div>
       ) : (
         /* Create Request Form */
-        <form onSubmit={handleCreateRequest} className="card p-6">
+        <form onSubmit={handleCreateRequest} style={{ padding: 0 }}>
           <h2 className="text-lg font-semibold text-text-primary mb-4">Create Verification Request</h2>
 
           {/* Credential Type Selector */}
@@ -374,7 +377,7 @@ export default function OID4VPPage() {
                   key={cd.credentialDefinitionId}
                   className={`flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors ${
                     selectedCredTypes.includes(cd.tag)
-                      ? 'border-primary-500 bg-primary-100'
+                      ? 'border-primary-500'
                       : 'border-border-secondary hover:border-border-primary'
                   }`}
                 >
@@ -405,7 +408,7 @@ export default function OID4VPPage() {
                     key={attr}
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 border rounded-full cursor-pointer transition-colors text-sm ${
                       requestedAttributes.includes(attr)
-                        ? 'border-primary-500 bg-primary-100 text-primary-700'
+                        ? 'border-primary-500 text-primary-700'
                         : 'border-border-secondary text-text-secondary hover:border-border-primary'
                     }`}
                   >

@@ -32,6 +32,16 @@ RUN corepack enable && corepack prepare yarn@4.3.1 --activate
 ENV NEXT_PUBLIC_API_URL=__RUNTIME_API_URL__
 ENV NEXT_PUBLIC_API_BASE_URL=__RUNTIME_API_URL__
 
+# Company branding — override with build args
+ARG NEXT_PUBLIC_COMPANY_NAME=Apostille
+ARG NEXT_PUBLIC_COMPANY_SUBTITLE="Credential Management System"
+ARG NEXT_PUBLIC_APPLICATION_TITLE=Apostille
+ARG NEXT_PUBLIC_APPLICATION_DESCRIPTION="A modern, secure credential management platform"
+ENV NEXT_PUBLIC_COMPANY_NAME=$NEXT_PUBLIC_COMPANY_NAME
+ENV NEXT_PUBLIC_COMPANY_SUBTITLE=$NEXT_PUBLIC_COMPANY_SUBTITLE
+ENV NEXT_PUBLIC_APPLICATION_TITLE=$NEXT_PUBLIC_APPLICATION_TITLE
+ENV NEXT_PUBLIC_APPLICATION_DESCRIPTION=$NEXT_PUBLIC_APPLICATION_DESCRIPTION
+
 # Build workspace dependencies in parallel where possible, then frontend
 # workflow-client and workflow-ui-core have no deps on each other - build in parallel
 RUN yarn workspace @ajna-inc/workflow-client build & \

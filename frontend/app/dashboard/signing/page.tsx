@@ -351,13 +351,14 @@ export default function SigningPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Action Bar */}
-      <div className="flex justify-end">
-        <button
-          onClick={() => setShowRequestModal(true)}
-          className="btn btn-primary"
-        >
+    <div>
+      {/* Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Signing</h1>
+          <p className="page-sub">Document signing sessions and key management.</p>
+        </div>
+        <button onClick={() => setShowRequestModal(true)} className="btn btn-primary">
           Request Signature
         </button>
       </div>
