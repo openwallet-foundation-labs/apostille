@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { DidCommRoutingService } from '@credo-ts/didcomm';
-import { getAgent, getTenantLabel } from '../services/agentService';
+import { getAgent, getMainAgent, getTenantLabel } from '../services/agentService';
+// getMainAgent used for routing record dedup cleanup
 import { auth } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -132,6 +133,34 @@ router.route('/invitation')
         // Allow custom label for invitation when provided by UI
         ...(label ? { label } : {}),
       });
+
+      // Tenant routing keys are auto-registered by TenantAgentContextProvider
+      // via RoutingCreatedEvent when createInvitation() calls getRouting().
+      // No manual registration needed — just clean up any duplicates from earlier bugs.
+      try {
+        const { InjectionSymbols } = await import('@credo-ts/core');
+        const { TenantRoutingRecord } = await import('@credo-ts/tenants');
+        const rootAgent = await getMainAgent();
+        const rootCtx = (rootAgent.modules.tenants as any).rootAgentContext;
+        const storageService = rootCtx.dependencyManager.resolve(InjectionSymbols.StorageService);
+        const all = await storageService.findByQuery(rootCtx, TenantRoutingRecord, { tenantId });
+        const byFp = new Map<string, any[]>();
+        for (const r of all) {
+          const fp = r.recipientKeyFingerprint;
+          if (!byFp.has(fp)) byFp.set(fp, []);
+          byFp.get(fp)!.push(r);
+        }
+        for (const [fp, recs] of byFp) {
+          if (recs.length > 1) {
+            console.log(`[ConnectionRoutes] Dedup: removing ${recs.length - 1} extra routing records for ${fp}`);
+            for (let i = 1; i < recs.length; i++) {
+              await storageService.deleteById(rootCtx, TenantRoutingRecord, recs[i].id);
+            }
+          }
+        }
+      } catch (e) {
+        // non-fatal
+      }
 
       // Use this agent's configured HTTP endpoint for invitation domain
       const invitationUrl = outOfBandInvitation.toUrl({ domain: agent.didcomm.config.endpoints[0] });
