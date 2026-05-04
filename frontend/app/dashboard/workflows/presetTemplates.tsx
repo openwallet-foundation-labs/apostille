@@ -250,10 +250,20 @@ const proofThenIssueTemplate = {
   ],
   transitions: [
     { from: 'start', to: 'await_proof', on: 'request_proof', action: 'send_proof_request' },
+    // Verifier sent request
+    { from: 'await_proof', to: 'await_proof', on: 'request_sent' },
+    // Holder received request, sent presentation
+    { from: 'await_proof', to: 'await_proof', on: 'request_received' },
+    { from: 'await_proof', to: 'await_proof', on: 'presentation_sent' },
+    // Verifier received presentation → issue credential
     { from: 'await_proof', to: 'issuing', on: 'presentation_received', action: 'offer_new_credential' },
     { from: 'await_proof', to: 'issuing', on: 'verified_ack', action: 'offer_new_credential' },
+    // Credential issuance (both sides)
+    { from: 'issuing', to: 'issuing', on: 'offer_sent' },
     { from: 'issuing', to: 'issuing', on: 'offer_received', action: 'request_credential' },
     { from: 'issuing', to: 'done', on: 'request_received', action: 'issue_credential' },
+    { from: 'issuing', to: 'done', on: 'credential_issued' },
+    { from: 'issuing', to: 'done', on: 'credential_received' },
     { from: 'issuing', to: 'done', on: 'issued_ack' },
     { from: 'await_proof', to: 'failed', on: 'proof_failed' },
   ],
@@ -329,9 +339,17 @@ const kanonAutoIssueTemplate = {
   transitions: [
     { from: 'collect', to: 'confirm', on: 'next', action: 'set_context' },
     { from: 'confirm', to: 'await_offer', on: 'propose', action: 'propose_kanon' },
+    // Issuer side: sent proposal, auto-offered
+    { from: 'await_offer', to: 'await_issue', on: 'proposal_sent' },
+    { from: 'await_offer', to: 'await_issue', on: 'offer_sent' },
+    // Holder side: received proposal/offer
     { from: 'await_offer', to: 'await_issue', on: 'proposal_received', action: 'offer_kanon' },
+    { from: 'await_offer', to: 'await_issue', on: 'offer_received' },
+    // Issuer side: received request, issue
     { from: 'await_issue', to: 'await_issue', on: 'offer_received', action: 'request_kanon' },
     { from: 'await_issue', to: 'done', on: 'request_received', action: 'issue_kanon' },
+    { from: 'await_issue', to: 'done', on: 'credential_issued' },
+    { from: 'await_issue', to: 'done', on: 'credential_received' },
     { from: 'await_issue', to: 'done', on: 'issued_ack' },
   ],
   catalog: {

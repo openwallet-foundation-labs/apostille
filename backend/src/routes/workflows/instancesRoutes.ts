@@ -41,10 +41,21 @@ router.post('/instances', auth, async (req: Request, res: Response) => {
 
     const agent = await getAgent({ tenantId })
 
-    // Validate connection
+    // Validate connection — getById can fail in multi-tenant Askar when the record
+    // name in the profile differs from the record id. Fall back to getAll + filter.
     try {
-      await agent.didcomm.connections.getById(connection_id)
-    } catch {
+      let conn
+      try {
+        conn = await agent.didcomm.connections.getById(connection_id)
+      } catch {
+        // Fallback: list all and find by id
+        const allConns = await agent.didcomm.connections.getAll()
+        conn = allConns.find((c: any) => c.id === connection_id)
+      }
+      if (!conn) {
+        return res.status(400).json({ success: false, code: 'invalid_connection', message: `connection not found or not owned by tenant: ${connection_id}` })
+      }
+    } catch (connErr: any) {
       return res.status(400).json({ success: false, code: 'invalid_connection', message: `connection not found or not owned by tenant: ${connection_id}` })
     }
 

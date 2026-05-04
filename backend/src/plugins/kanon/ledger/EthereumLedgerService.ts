@@ -18,7 +18,7 @@ export enum DefaultProviderUrl {
 export class EthereumLedgerService {
   private networks: IEthereumLedgerConfig[];
   private contractAddress: string =
-    "0x71A331a8F293440F0bd062a02fa0a880Ee2006fC";
+    process.env.KANON_CONTRACT_ADDRESS || "0x42699A7612A82f1d9C36148af9C77354759b210b";
   private abi: any[] = [
     "function registerDID(string,string,string)",
     "function updateDID(string,string,string)",

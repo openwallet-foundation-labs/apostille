@@ -136,7 +136,7 @@ export default function BadgesPage() {
             </div>
             <div>
               <p className="text-2xl font-bold text-text-primary">
-                {badges.filter(b => b.proof).length}
+                {badges.filter(b => (b as any).credential?.proof || b.proof).length}
               </p>
               <p className="text-sm text-text-secondary">Verified</p>
             </div>
@@ -153,7 +153,7 @@ export default function BadgesPage() {
             <div>
               <p className="text-2xl font-bold text-text-primary">
                 {badges.length > 0
-                  ? new Date(badges[0].validFrom).toLocaleDateString()
+                  ? new Date((badges[0] as any).credential?.validFrom || (badges[0] as any).credential?.issuanceDate || (badges[0] as any).createdAt || '').toLocaleDateString()
                   : '-'}
               </p>
               <p className="text-sm text-text-secondary">Last Issued</p>

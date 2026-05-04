@@ -21,14 +21,18 @@ function validateBrandingAttributes(
   overlay: any,
   schemaAttributes: string[]
 ): string | null {
+  // Strip branding attributes that don't exist in the schema instead of rejecting.
+  // This allows reusing OCA templates across different schemas.
   const primary = overlay?.branding?.primary_attribute;
   if (primary && !schemaAttributes.includes(primary)) {
-    return `Primary attribute "${primary}" is not in schema attributes`;
+    console.warn(`[CredDef] primary_attribute "${primary}" not in schema — clearing`);
+    overlay.branding.primary_attribute = '';
   }
 
   const secondary = overlay?.branding?.secondary_attribute;
   if (secondary && !schemaAttributes.includes(secondary)) {
-    return `Secondary attribute "${secondary}" is not in schema attributes`;
+    console.warn(`[CredDef] secondary_attribute "${secondary}" not in schema — clearing`);
+    overlay.branding.secondary_attribute = '';
   }
 
   return null;

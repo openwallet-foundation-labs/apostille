@@ -14,10 +14,12 @@ interface BadgeDetailsModalProps {
 export default function BadgeDetailsModal({ isOpen, onClose, badge }: BadgeDetailsModalProps) {
   if (!badge) return null;
 
-  const achievement = badge.credentialSubject?.achievement;
-  const issuer = typeof badge.issuer === 'string'
-    ? { id: badge.issuer, name: badge.issuer, url: undefined, description: undefined }
-    : badge.issuer;
+  // API returns { id, credential: { credentialSubject, issuer, proof, ... }, createdAt }
+  const credential = (badge as any).credential || badge;
+  const achievement = credential.credentialSubject?.achievement;
+  const issuer = typeof credential.issuer === 'string'
+    ? { id: credential.issuer, name: credential.issuer, url: undefined, description: undefined }
+    : credential.issuer;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(JSON.stringify(badge, null, 2));
@@ -72,9 +74,9 @@ export default function BadgeDetailsModal({ isOpen, onClose, badge }: BadgeDetai
                       <Dialog.Title className="text-xl font-bold">
                         {achievement?.name || 'Untitled Badge'}
                       </Dialog.Title>
-                      <p className="text-white/80 mt-1">{badge.name}</p>
+                      <p className="text-white/80 mt-1">{credential.name || achievement?.name || 'Badge'}</p>
                       <div className="flex items-center gap-2 mt-2">
-                        {badge.proof && (
+                        {credential.proof && (
                           <span className="inline-flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded text-sm">
                             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -141,7 +143,7 @@ export default function BadgeDetailsModal({ isOpen, onClose, badge }: BadgeDetai
                   </div>
 
                   {/* Proof Details */}
-                  {badge.proof && (
+                  {credential.proof && (
                     <div>
                       <h4 className="text-sm font-medium text-text-tertiary uppercase tracking-wide mb-2">
                         Proof
@@ -149,23 +151,23 @@ export default function BadgeDetailsModal({ isOpen, onClose, badge }: BadgeDetai
                       <div className="bg-surface-100 rounded-lg p-4 space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-text-tertiary">Type</span>
-                          <span className="text-text-primary font-mono">{badge.proof.type}</span>
+                          <span className="text-text-primary font-mono">{credential.proof.type}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-text-tertiary">Cryptosuite</span>
-                          <span className="text-text-primary font-mono">{badge.proof.cryptosuite}</span>
+                          <span className="text-text-primary font-mono">{credential.proof.cryptosuite}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-text-tertiary">Created</span>
-                          <span className="text-text-primary">{new Date(badge.proof.created).toLocaleString()}</span>
+                          <span className="text-text-primary">{new Date(credential.proof.created).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-text-tertiary">Purpose</span>
-                          <span className="text-text-primary">{badge.proof.proofPurpose}</span>
+                          <span className="text-text-primary">{credential.proof.proofPurpose}</span>
                         </div>
                         <div>
                           <span className="text-text-tertiary">Verification Method</span>
-                          <p className="text-text-primary font-mono text-xs break-all mt-1">{badge.proof.verificationMethod}</p>
+                          <p className="text-text-primary font-mono text-xs break-all mt-1">{credential.proof.verificationMethod}</p>
                         </div>
                       </div>
                     </div>
@@ -179,7 +181,7 @@ export default function BadgeDetailsModal({ isOpen, onClose, badge }: BadgeDetai
                     </div>
                     <div>
                       <span className="text-text-tertiary">Issued</span>
-                      <p className="text-text-primary">{new Date(badge.validFrom).toLocaleString()}</p>
+                      <p className="text-text-primary">{new Date(credential.validFrom || credential.issuanceDate || (badge as any).createdAt || '').toLocaleString()}</p>
                     </div>
                   </div>
                 </div>

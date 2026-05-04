@@ -110,21 +110,21 @@ router.post('/credentials/issue', auth, async (req: Request, res: Response) => {
         verificationMethod: `${issuerDid}#key-0`,
       },
     }
-    const record = await openbadgesApi.issueCredential(credentialWithProof)
-
+    let record: any
     let sentViaDIDComm = false
     let emailSent = false
 
-    // Send via DIDComm if connectionId provided
     if (connectionId) {
+      // Send via DIDComm — sendCredential issues + sends in one step
       try {
-        // Pass the unsigned credential input (with verificationMethod hint) - sendCredential will sign it
         await openbadgesApi.sendCredential(connectionId, credentialWithProof)
         sentViaDIDComm = true
       } catch (err) {
         console.error('Failed to send via DIDComm:', err)
-        // Continue - credential is still issued, just not sent
       }
+    } else {
+      // No connection — just issue and store locally
+      record = await openbadgesApi.issueCredential(credentialWithProof)
     }
 
     // Send email notification if recipientEmail provided

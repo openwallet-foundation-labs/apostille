@@ -166,14 +166,21 @@ export function CredentialProfilesPanel() {
       }
     }
 
-    // Auto-populate attribute_plan with schema attributes
+    // Merge schema attributes into existing attribute_plan, preserving
+    // any already-configured entries (e.g. source:'static' or source:'compute').
+    const existing = selectedProfile?.attribute_plan || {}
     const attributePlan: Record<string, AttributePlanEntry> = {}
     if (schemaAttrNames.length) {
       schemaAttrNames.forEach((attr: string) => {
-        attributePlan[attr] = {
-          source: 'context',
-          path: attr,
-          required: true,
+        if (existing[attr]) {
+          // Keep the existing configuration (static, compute, etc.)
+          attributePlan[attr] = existing[attr]
+        } else {
+          attributePlan[attr] = {
+            source: 'context',
+            path: attr,
+            required: true,
+          }
         }
       })
     }

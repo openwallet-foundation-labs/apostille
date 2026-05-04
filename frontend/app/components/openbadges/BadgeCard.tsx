@@ -9,15 +9,16 @@ interface BadgeCardProps {
 }
 
 export default function BadgeCard({ badge, onClick }: BadgeCardProps) {
-  const achievement = badge.credentialSubject?.achievement;
-  const issuer = typeof badge.issuer === 'string'
-    ? { id: badge.issuer, name: badge.issuer }
-    : badge.issuer;
+  // API returns { id, credential: { credentialSubject, issuer, proof, ... }, createdAt }
+  const credential = (badge as any).credential || badge;
+  const achievement = credential.credentialSubject?.achievement;
+  const issuer = typeof credential.issuer === 'string'
+    ? { id: credential.issuer, name: credential.issuer }
+    : credential.issuer;
 
-  const isVerified = !!badge.proof;
-  const issuedDate = badge.validFrom
-    ? new Date(badge.validFrom).toLocaleDateString()
-    : 'Unknown';
+  const isVerified = !!credential.proof;
+  const dateStr = credential.validFrom || credential.issuanceDate || (badge as any).createdAt;
+  const issuedDate = dateStr ? new Date(dateStr).toLocaleDateString() : 'Unknown';
 
   return (
     <div
@@ -47,7 +48,7 @@ export default function BadgeCard({ badge, onClick }: BadgeCardProps) {
             {achievement?.name || 'Untitled Badge'}
           </h3>
           <p className="text-sm text-text-secondary truncate">
-            {badge.name}
+            {credential.name || achievement?.name || 'Badge'}
           </p>
           <p className="text-xs text-text-tertiary mt-1">
             Issued by {issuer?.name || 'Unknown Issuer'}
@@ -56,7 +57,7 @@ export default function BadgeCard({ badge, onClick }: BadgeCardProps) {
 
         {/* Verification Status */}
         <div className="flex-shrink-0">
-          {isVerified ? (
+          {isVerified && credential.proof ? (
             <span className="badge badge-success flex items-center gap-1">
               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -80,9 +81,9 @@ export default function BadgeCard({ badge, onClick }: BadgeCardProps) {
       <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-xs text-text-tertiary">
         <span>Issued: {issuedDate}</span>
         <span className="flex items-center gap-1">
-          {badge.proof?.cryptosuite && (
+          {credential.proof?.cryptosuite && (
             <span className="bg-surface-100 px-2 py-0.5 rounded">
-              {badge.proof.cryptosuite}
+              {credential.proof.cryptosuite}
             </span>
           )}
         </span>
