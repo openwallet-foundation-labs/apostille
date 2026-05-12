@@ -70,8 +70,11 @@ router.route('/')
       let dbCredDefs: any[] = [];
       try {
         const result = await db.query(
-          'SELECT * FROM credential_definitions WHERE tenant_id = $1 AND format IN ($2, $3) ORDER BY created_at DESC',
-          [tenantId, 'oid4vc', 'mso_mdoc']
+          `SELECT * FROM credential_definitions
+           WHERE tenant_id = $1
+             AND format IN ('oid4vc', 'mso_mdoc', 'jwt_vc_json', 'jwt_vc_json-ld', 'ldp_vc', 'openbadge_v3')
+           ORDER BY created_at DESC`,
+          [tenantId]
         );
         dbCredDefs = result.rows.map(row => ({
           credentialDefinitionId: row.credential_definition_id,
@@ -88,12 +91,17 @@ router.route('/')
           // mdoc-specific fields
           doctype: row.doctype,
           namespaces: row.namespaces,
+          // W3C VC / OBv3 fields
+          vcContexts: row.vc_contexts,
+          vcTypes: row.vc_types,
+          achievement: row.achievement,
+          proofSuite: row.proof_suite,
+          signingAlg: row.signing_alg,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
         }));
       } catch (dbError: any) {
         console.warn('Failed to fetch credential definitions from database:', dbError.message);
-        // Continue without database definitions if table doesn't exist yet
       }
 
       // Combine both types
@@ -114,11 +122,27 @@ router.route('/')
   .post(auth, async (req: Request, res: Response) => {
     try {
       const tenantId = req.user.tenantId;
-      const { schemaId, tag, supportRevocation, overlay, format = 'anoncreds', doctype, namespaces } = req.body;
+      const {
+        schemaId,
+        tag,
+        supportRevocation,
+        overlay,
+        format = 'anoncreds',
+        doctype,
+        namespaces,
+        // W3C VC / OBv3 fields
+        vcContexts,
+        vcTypes,
+        achievement,
+        proofSuite,
+        signingAlg,
+        schemaAttributes: providedSchemaAttributes,
+      } = req.body;
       console.log(req.body, "req.body");
 
-      // For mdoc, schemaId is optional (we use doctype/namespaces instead)
-      if (format !== 'mso_mdoc' && (!schemaId || !tag)) {
+      const schemaLessFormats = ['mso_mdoc', 'jwt_vc_json', 'jwt_vc_json-ld', 'ldp_vc', 'openbadge_v3']
+      const requiresSchemaId = !schemaLessFormats.includes(format)
+      if (requiresSchemaId && (!schemaId || !tag)) {
         res.status(400).json({
           success: false,
           message: 'Schema ID and tag are required'
@@ -126,7 +150,7 @@ router.route('/')
         return;
       }
 
-      if (format === 'mso_mdoc' && !tag) {
+      if (!tag) {
         res.status(400).json({
           success: false,
           message: 'Tag is required'
@@ -134,16 +158,93 @@ router.route('/')
         return;
       }
 
-      // Validate format
-      if (!['anoncreds', 'oid4vc', 'mso_mdoc'].includes(format)) {
+      const allowedFormats = [
+        'anoncreds',
+        'oid4vc',
+        'mso_mdoc',
+        'jwt_vc_json',
+        'jwt_vc_json-ld',
+        'ldp_vc',
+        'openbadge_v3',
+      ]
+      if (!allowedFormats.includes(format)) {
         res.status(400).json({
           success: false,
-          message: 'Format must be "anoncreds", "oid4vc", or "mso_mdoc"'
+          message: `Format must be one of: ${allowedFormats.join(', ')}`
         });
         return;
       }
 
       const agent = await getAgent({ tenantId });
+
+      // Handle W3C VC / OBv3 formats - schema-less, free-form attribute list
+      if (
+        format === 'jwt_vc_json' ||
+        format === 'jwt_vc_json-ld' ||
+        format === 'ldp_vc' ||
+        format === 'openbadge_v3'
+      ) {
+        try {
+          const hostname = new URL(apiBaseUrl).hostname;
+          const credentialDefinitionId = `did:web:${hostname}:issuers:${tenantId}:${format}:${tag}`;
+
+          const existingCheck = await db.query(
+            'SELECT id FROM credential_definitions WHERE tenant_id = $1 AND tag = $2 AND format = $3',
+            [tenantId, tag, format]
+          );
+          if (existingCheck.rows.length > 0) {
+            res.status(409).json({
+              success: false,
+              message: `${format} credential definition with tag "${tag}" already exists for this tenant`,
+            });
+            return;
+          }
+
+          const schemaAttributes: string[] = Array.isArray(providedSchemaAttributes)
+            ? providedSchemaAttributes
+            : []
+          // For OBv3, schema is implicit from the achievement template — attrs
+          // describe extra credentialSubject fields.
+
+          const result = await db.query(`
+            INSERT INTO credential_definitions (
+              tenant_id, credential_definition_id, schema_id, tag, format, overlay,
+              schema_attributes, vc_contexts, vc_types, achievement, proof_suite, signing_alg
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING id, credential_definition_id
+          `, [
+            tenantId,
+            credentialDefinitionId,
+            schemaId || `${format}:${tag}`,  // Pseudo schema id for schema-less formats
+            tag,
+            format,
+            overlay ? JSON.stringify(overlay) : null,
+            JSON.stringify(schemaAttributes),
+            vcContexts ? JSON.stringify(vcContexts) : null,
+            vcTypes ? JSON.stringify(vcTypes) : null,
+            achievement ? JSON.stringify(achievement) : null,
+            proofSuite || null,
+            signingAlg || null,
+          ]);
+
+          res.status(201).json({
+            success: true,
+            message: `${format} credential definition created successfully`,
+            credentialDefinitionId: result.rows[0].credential_definition_id,
+            format,
+            issuerUrl: `${apiBaseUrl}/issuers/${tenantId}`,
+            issuerMetadataUrl: `${apiBaseUrl}/issuers/${tenantId}/.well-known/openid-credential-issuer`,
+          });
+          return;
+        } catch (dbError: any) {
+          console.error(`Failed to create ${format} credential definition:`, dbError);
+          res.status(500).json({
+            success: false,
+            message: dbError.message || `Failed to create ${format} credential definition`,
+          });
+          return;
+        }
+      }
 
       // Handle mso_mdoc format - mdoc/mDL credentials
       if (format === 'mso_mdoc') {

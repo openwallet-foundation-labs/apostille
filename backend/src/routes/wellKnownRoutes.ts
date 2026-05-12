@@ -180,7 +180,7 @@ export function createIssuerRoutes(): Router {
           SELECT cd.*, cd.overlay
           FROM credential_definitions cd
           WHERE cd.tenant_id = $1
-            AND cd.format IN ('oid4vc', 'mso_mdoc', 'anoncreds')
+            AND cd.format IN ('oid4vc', 'mso_mdoc', 'anoncreds', 'jwt_vc_json', 'jwt_vc_json-ld', 'ldp_vc', 'openbadge_v3')
         `, [tenantId])
 
         console.log(`[OID4VCI Metadata] Found ${result.rows.length} credential definitions for tenant ${tenantId}`)
@@ -197,6 +197,63 @@ export function createIssuerRoutes(): Router {
         }
 
         // If we have credential definitions, build configurations from them
+        // AnonCreds cred-defs live in the agent's anoncreds module, not in
+        // the credential_definitions DB table. Fetch them separately and
+        // merge into the metadata so wallets can discover anoncreds configs.
+        try {
+          const agent = await getAgent({ tenantId })
+          const anoncredsDefs = await agent.modules.anoncreds.getCreatedCredentialDefinitions({})
+          for (const def of anoncredsDefs) {
+            const credDefId = def.credentialDefinitionId
+            const credDefVal: any = def.credentialDefinition
+            const schemaId = credDefVal.schemaId
+            const tag = credDefVal.tag
+
+            // Resolve schema to get attr names.
+            let attrNames: string[] = []
+            try {
+              const schemaRes = await agent.modules.anoncreds.getSchema(schemaId)
+              attrNames = schemaRes?.schema?.attrNames ?? []
+            } catch {
+              /* schema lookup best-effort */
+            }
+
+            const configId = tag || credDefId
+            const claims: Record<string, any> = {}
+            for (const attr of attrNames) {
+              claims[attr] = { display: [{ name: attr, locale: 'en' }] }
+            }
+            credentialConfigurations[configId] = {
+              format: 'anoncreds',
+              scope: configId,
+              cryptographic_binding_methods_supported: ['link_secret'],
+              credential_signing_alg_values_supported: ['CLSignature2019'],
+              proof_types_supported: {
+                anoncreds: { proof_signing_alg_values_supported: ['CLSignature2019'] },
+              },
+              anoncreds: {
+                schema: {
+                  id: schemaId,
+                  name: attrNames.length ? configId : configId,
+                  version: '1.0',
+                  attr_names: attrNames,
+                },
+                credential_definition: {
+                  id: credDefId,
+                  schema_id: schemaId,
+                  type: 'CL',
+                  tag,
+                },
+                revocation: { supported: !!credDefVal.value?.revocation },
+              },
+              display: [{ name: configId, locale: 'en' }],
+              claims,
+            }
+          }
+        } catch (anoncredsErr: any) {
+          console.warn('AnonCreds metadata enumeration failed:', anoncredsErr.message)
+        }
+
         if (result.rows && result.rows.length > 0) {
           for (const credDef of result.rows) {
             const overlay = credDef.overlay || {}
@@ -263,6 +320,120 @@ export function createIssuerRoutes(): Router {
                   locale: 'en',
                 }],
                 claims,
+              }
+            } else if (
+              credDef.format === 'jwt_vc_json' ||
+              credDef.format === 'jwt_vc_json-ld' ||
+              credDef.format === 'ldp_vc' ||
+              credDef.format === 'openbadge_v3'
+            ) {
+              const parseJson = (v: any) => {
+                if (v === null || v === undefined) return undefined
+                if (typeof v === 'object') return v
+                try { return JSON.parse(v) } catch { return undefined }
+              }
+              const vcTypes: string[] | undefined = parseJson(credDef.vc_types)
+              const vcContexts: string[] | undefined = parseJson(credDef.vc_contexts)
+              const achievement: any = parseJson(credDef.achievement)
+              const attrs: string[] = Array.isArray(credDef.schema_attributes)
+                ? credDef.schema_attributes
+                : JSON.parse(credDef.schema_attributes || '[]')
+              const claims: Record<string, any> = {}
+              for (const attr of attrs) {
+                claims[attr] = { display: [{ name: attr, locale: 'en' }] }
+              }
+
+              if (credDef.format === 'openbadge_v3') {
+                // OBv3 is wire-format `ldp_vc` (wallet detects OBv3 from type[])
+                credentialConfigurations[configId] = {
+                  format: 'ldp_vc',
+                  scope: configId,
+                  credential_definition: {
+                    '@context': [
+                      'https://www.w3.org/ns/credentials/v2',
+                      'https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json',
+                      ...(vcContexts ?? []),
+                    ],
+                    type: vcTypes && vcTypes.length > 0
+                      ? vcTypes
+                      : ['VerifiableCredential', 'OpenBadgeCredential'],
+                  },
+                  cryptographic_binding_methods_supported: ['did:key', 'did:jwk', 'did:web'],
+                  credential_signing_alg_values_supported: ['EdDSA'],
+                  proof_types_supported: {
+                    jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] },
+                  },
+                  display: [{
+                    name: meta.name || (achievement?.name) || configId,
+                    description: meta.description || achievement?.description,
+                    background_color: branding.primary_background_color,
+                    text_color: branding.text_color || '#FFFFFF',
+                    logo: branding.logo ? { uri: branding.logo, alt_text: meta.name || configId } : undefined,
+                    locale: 'en',
+                  }],
+                  ...(achievement && { achievement }),
+                  claims,
+                }
+              } else if (credDef.format === 'ldp_vc') {
+                credentialConfigurations[configId] = {
+                  format: 'ldp_vc',
+                  scope: configId,
+                  credential_definition: {
+                    '@context': [
+                      'https://www.w3.org/ns/credentials/v2',
+                      ...(vcContexts ?? []),
+                    ],
+                    type: vcTypes && vcTypes.length > 0
+                      ? vcTypes
+                      : ['VerifiableCredential', configId],
+                  },
+                  cryptographic_binding_methods_supported: ['did:key', 'did:jwk'],
+                  credential_signing_alg_values_supported: ['EdDSA'],
+                  proof_types_supported: {
+                    jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] },
+                  },
+                  display: [{
+                    name: meta.name || configId,
+                    description: meta.description,
+                    background_color: branding.primary_background_color,
+                    text_color: branding.text_color || '#FFFFFF',
+                    logo: branding.logo ? { uri: branding.logo, alt_text: meta.name || configId } : undefined,
+                    locale: 'en',
+                  }],
+                  claims,
+                }
+              } else {
+                // jwt_vc_json or jwt_vc_json-ld
+                const isJsonLd = credDef.format === 'jwt_vc_json-ld'
+                credentialConfigurations[configId] = {
+                  format: credDef.format,
+                  scope: configId,
+                  credential_definition: {
+                    ...(isJsonLd && {
+                      '@context': [
+                        'https://www.w3.org/ns/credentials/v2',
+                        ...(vcContexts ?? []),
+                      ],
+                    }),
+                    type: vcTypes && vcTypes.length > 0
+                      ? vcTypes
+                      : ['VerifiableCredential', configId],
+                  },
+                  cryptographic_binding_methods_supported: ['did:key', 'did:jwk'],
+                  credential_signing_alg_values_supported: ['EdDSA', 'ES256'],
+                  proof_types_supported: {
+                    jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] },
+                  },
+                  display: [{
+                    name: meta.name || configId,
+                    description: meta.description,
+                    background_color: branding.primary_background_color,
+                    text_color: branding.text_color || '#FFFFFF',
+                    logo: branding.logo ? { uri: branding.logo, alt_text: meta.name || configId } : undefined,
+                    locale: 'en',
+                  }],
+                  claims,
+                }
               }
             } else if (credDef.format === 'mso_mdoc') {
               // Build mso_mdoc configuration
@@ -338,6 +509,68 @@ export function createIssuerRoutes(): Router {
       } catch (dbError: any) {
         console.warn('Failed to fetch credential definitions from database:', dbError.message)
         // Continue with empty configurations - issuer metadata is still valid
+      }
+
+      // DEMO: Inject dummy credentials if this is the platform tenant
+      if (tenantId === PLATFORM_TENANT_ID) {
+        const demoSdJwtConfigs = [
+          { id: 'StudentID', name: 'Student ID', attrs: ['given_name', 'family_name', 'student_id', 'university', 'program', 'enrollment_year', 'expiry_date'] },
+          { id: 'ProfessionalLicense', name: 'Professional License', attrs: ['given_name', 'family_name', 'license_number', 'profession', 'issuing_authority', 'issue_date', 'expiry_date'] },
+          { id: 'EmployeeBadge', name: 'Employee Badge', attrs: ['given_name', 'family_name', 'employee_id', 'department', 'job_title', 'company', 'issue_date'] },
+          { id: 'HealthInsurance', name: 'Health Insurance', attrs: ['given_name', 'family_name', 'member_id', 'plan_name', 'insurer', 'group_number', 'effective_date'] },
+          { id: 'LoyaltyMembership', name: 'Loyalty Membership', attrs: ['given_name', 'family_name', 'member_id', 'tier', 'points', 'joined_date', 'program_name'] },
+          { id: 'AgeVerification', name: 'Age Verification', attrs: ['given_name', 'family_name', 'birth_date', 'over_18', 'over_21', 'nationality'] }
+        ];
+
+        const demoObv3Configs = [
+          { id: 'AcademicExcellence', name: "Dean's List for Academic Excellence", desc: 'Awarded for maintaining a GPA of 3.8 or higher during the academic year.' },
+          { id: 'SkillsCertification', name: 'Cloud Computing Specialist', desc: 'Professional certification demonstrating proficiency in cloud architecture and deployment.' },
+          { id: 'CourseCompletion', name: 'Introduction to Web Development', desc: 'Successfully completed the introductory course covering HTML, CSS, and JavaScript basics.' }
+        ];
+
+        for (const config of demoSdJwtConfigs) {
+          if (!credentialConfigurations[config.id]) {
+            const claims: Record<string, any> = {};
+            for (const attr of config.attrs) {
+              claims[attr] = { display: [{ name: attr, locale: 'en' }] };
+            }
+            credentialConfigurations[config.id] = {
+              format: 'vc+sd-jwt',
+              vct: config.id,
+              scope: config.id,
+              cryptographic_binding_methods_supported: ['jwk', 'did:jwk', 'did:key'],
+              credential_signing_alg_values_supported: ['EdDSA', 'ES256'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
+              },
+              display: [{ name: config.name, description: 'Demo Credential', background_color: '#1E3A5F', text_color: '#FFFFFF', locale: 'en' }],
+              claims
+            };
+          }
+        }
+
+        for (const config of demoObv3Configs) {
+          if (!credentialConfigurations[config.id]) {
+            credentialConfigurations[config.id] = {
+              format: 'ldp_vc',
+              scope: config.id,
+              credential_definition: {
+                '@context': [
+                  'https://www.w3.org/ns/credentials/v2',
+                  'https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json'
+                ],
+                type: ['VerifiableCredential', 'OpenBadgeCredential']
+              },
+              cryptographic_binding_methods_supported: ['did:key', 'did:jwk', 'did:web'],
+              credential_signing_alg_values_supported: ['EdDSA'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
+              },
+              display: [{ name: config.name, description: config.desc, background_color: '#4C1D95', text_color: '#FFFFFF', locale: 'en' }],
+              claims: {}
+            };
+          }
+        }
       }
 
       // Check if tenantId looks like a UUID (valid format)

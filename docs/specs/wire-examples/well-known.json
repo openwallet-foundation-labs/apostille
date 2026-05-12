@@ -1,0 +1,48 @@
+{
+  "credential_issuer": "https://issuer.example.com/issuers/9b2f0c0e-abcd-4ef0-9876-1234567890ab",
+  "credential_endpoint": "https://issuer.example.com/issuers/9b2f0c0e-abcd-4ef0-9876-1234567890ab/credential",
+  "token_endpoint": "https://issuer.example.com/issuers/9b2f0c0e-abcd-4ef0-9876-1234567890ab/token",
+  "authorization_server": "https://issuer.example.com/issuers/9b2f0c0e-abcd-4ef0-9876-1234567890ab",
+  "display": [{ "name": "ESSI Studio Reference Issuer", "locale": "en" }],
+  "credential_configurations_supported": {
+    "UniversityDegree_AnonCreds": {
+      "format": "anoncreds",
+      "scope": "UniversityDegree_AnonCreds",
+      "cryptographic_binding_methods_supported": ["link_secret"],
+      "credential_signing_alg_values_supported": ["CLSignature2019"],
+      "proof_types_supported": {
+        "anoncreds": {
+          "proof_signing_alg_values_supported": ["CLSignature2019"]
+        }
+      },
+      "anoncreds": {
+        "schema": {
+          "id": "did:ajna:kanon:1:degree:1.0",
+          "name": "degree",
+          "version": "1.0",
+          "attr_names": ["name", "degree", "university", "year", "gpa"]
+        },
+        "credential_definition": {
+          "id": "did:ajna:kanon:3:CL:17:default",
+          "schema_id": "did:ajna:kanon:1:degree:1.0",
+          "type": "CL",
+          "tag": "default"
+        },
+        "revocation": { "supported": false }
+      },
+      "display": [{
+        "name": "University Degree",
+        "background_color": "#1E3A5F",
+        "text_color": "#FFFFFF",
+        "locale": "en"
+      }],
+      "claims": {
+        "name": { "display": [{ "name": "name", "locale": "en" }] },
+        "degree": { "display": [{ "name": "degree", "locale": "en" }] },
+        "university": { "display": [{ "name": "university", "locale": "en" }] },
+        "year": { "display": [{ "name": "year", "locale": "en" }] },
+        "gpa": { "display": [{ "name": "gpa", "locale": "en" }] }
+      }
+    }
+  }
+}

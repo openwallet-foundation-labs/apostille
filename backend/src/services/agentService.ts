@@ -1131,7 +1131,8 @@ export function clearTenantAgentCache(tenantId: string): void {
  * Returns the tenant agent and caches it. Runs processExistingKemMessages in the background.
  */
 async function activateTenantAgent(tenantId: string, baseAgent: AgentWithDidComm): Promise<AgentWithDidComm> {
-    const tenantAgent = await withRetry(() => baseAgent.modules.tenants.getTenantAgent({
+    const isMainWallet = tenantId === process.env.MAIN_WALLET_ID;
+    const tenantAgent = isMainWallet ? baseAgent : await withRetry(() => baseAgent.modules.tenants.getTenantAgent({
         tenantId
     })) as AgentWithDidComm;
 

@@ -53,10 +53,10 @@ test.describe('Full Multi-Tenant PDF Signing E2E', () => {
     // Tenant A initiates key exchange
     await connectionsA.exchangeKeys();
 
-    // Tenant B waits for pending request, then accepts
+    // KEM exchange is auto-accepted by the backend, so both sides
+    // should reach "Ready" without manual intervention.
     await connectionsB.goto();
-    await waitForKemPendingRequest(tenantB.page, 60_000);
-    await connectionsB.acceptKeyExchange();
+    await waitForKemReady(tenantB.page, 60_000);
 
     // Verify Tenant A also sees "Ready"
     await connectionsA.goto();
@@ -79,20 +79,18 @@ test.describe('Full Multi-Tenant PDF Signing E2E', () => {
     const pdfSigningB = new PdfSigningPage(tenantB.page);
     await pdfSigningB.goto();
 
-    // Poll until a "Sign" button appears in the signer's "Documents to Sign" section
+    // Poll until a "Sign" button appears on the PDF Signing landing page
+    // The redesigned page shows received documents in a "Latest Task" card
+    // with a "Sign" button directly visible (no section expansion needed).
     await pollUntil(
       tenantB.page,
       async () => {
-        // Expand the collapsible section (may fail if section doesn't exist yet)
-        await pdfSigningB.expandSection('Documents to Sign').catch(() => {});
         const signBtn = tenantB.page
-          .locator('.card')
-          .filter({ hasText: 'Documents to Sign' })
-          .getByText('Sign', { exact: true })
+          .getByRole('button', { name: 'Sign', exact: true })
           .first();
         return signBtn.isVisible().catch(() => false);
       },
-      { timeout: 90_000, interval: 5_000, reloadBetween: true, sidebarLink: 'PDF Signing' }
+      { timeout: 120_000, interval: 5_000, reloadBetween: true, sidebarLink: 'PDF Signing' }
     );
 
     // Sign the document (generates a new key + signs)
@@ -107,19 +105,21 @@ test.describe('Full Multi-Tenant PDF Signing E2E', () => {
     // ============================================================
 
     await pdfSigningB.goto();
+    // Switch to the "all tasks" view
+    await tenantB.page.getByRole('button', { name: 'View All', exact: true }).click();
+    await tenantB.page.waitForTimeout(1_000);
 
-    // Poll until the document appears in "Signed - Return to Owner"
+    // Poll until "Return to Owner" button appears (without reloading, which resets the view)
     await pollUntil(
       tenantB.page,
       async () => {
-        await pdfSigningB.expandSection('Signed - Return to Owner').catch(() => {});
         return tenantB.page
           .getByText('Return to Owner', { exact: true })
           .first()
           .isVisible()
           .catch(() => false);
       },
-      { timeout: 60_000, interval: 5_000, reloadBetween: true, sidebarLink: 'PDF Signing' }
+      { timeout: 90_000, interval: 5_000, reloadBetween: false }
     );
 
     await pdfSigningB.returnToOwner();
@@ -130,20 +130,24 @@ test.describe('Full Multi-Tenant PDF Signing E2E', () => {
 
     await pdfSigningA.goto();
 
-    // Poll until the document appears with a Verify button
+    // Poll until "Verify" button appears — reload between polls so
+    // the status endpoint re-fetches after the signed PDF arrives via DIDComm.
+    // After each SPA reload we switch to the tasks view.
     await pollUntil(
       tenantA.page,
       async () => {
-        await pdfSigningA.expandSection('Signed Documents').catch(() => {});
+        const viewAllBtn = tenantA.page.getByRole('button', { name: 'View All', exact: true });
+        if (await viewAllBtn.isVisible().catch(() => false)) {
+          await viewAllBtn.click();
+          await tenantA.page.waitForTimeout(500);
+        }
         return tenantA.page
-          .locator('.card')
-          .filter({ hasText: 'Signed Documents' })
           .getByText('Verify', { exact: true })
           .first()
           .isVisible()
           .catch(() => false);
       },
-      { timeout: 60_000, interval: 5_000, reloadBetween: true, sidebarLink: 'PDF Signing' }
+      { timeout: 120_000, interval: 5_000, reloadBetween: true, sidebarLink: 'PDF Signing' }
     );
 
     const { valid, signerName } = await pdfSigningA.verifySignature();

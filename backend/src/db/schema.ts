@@ -213,12 +213,15 @@ export type Oid4vciPendingOfferSchema = {
     access_token: string | null;
     c_nonce: string | null;
     status: 'pending' | 'token_issued' | 'credential_request_received' | 'credential_issued' | 'expired';
-    format: 'vc+sd-jwt' | 'mso_mdoc' | 'anoncreds' | null;  // credential format
+    format: 'vc+sd-jwt' | 'mso_mdoc' | 'anoncreds' | 'jwt_vc_json' | 'jwt_vc_json-ld' | 'ldp_vc' | 'openbadge_v3' | null;  // credential format
     doctype: string | null;  // for mdoc: e.g., 'org.iso.18013.5.1.mDL'
     cred_def_id: string | null;             // anoncreds: credential definition id
     anoncreds_offer: Record<string, unknown> | null;  // anoncreds: { schema_id, cred_def_id, nonce, key_correctness_proof }
     rev_reg_id: string | null;              // anoncreds: revocation registry id
     wire_trace: Record<string, unknown> | null;       // captured wire payloads for the inspector
+    vc_contexts: string[] | null;           // jwt_vc_json-ld / ldp_vc / openbadge_v3
+    vc_types: string[] | null;              // jwt_vc_json / jwt_vc_json-ld / ldp_vc / openbadge_v3
+    achievement: Record<string, unknown> | null;  // openbadge_v3 achievement template
     created_at: Date;
     expires_at: Date;
     issued_at: Date | null;
@@ -245,12 +248,18 @@ export type CredentialDefinitionSchema = {
     credential_definition_id: string;
     schema_id: string;
     tag: string;
-    format: 'anoncreds' | 'oid4vc' | 'mso_mdoc';
+    format: 'anoncreds' | 'oid4vc' | 'mso_mdoc' | 'jwt_vc_json' | 'jwt_vc_json-ld' | 'ldp_vc' | 'openbadge_v3';
     overlay: Record<string, unknown> | null;
     schema_attributes: string[] | null;
     // mdoc-specific fields
     doctype: string | null;  // e.g., 'org.iso.18013.5.1.mDL'
     namespaces: Record<string, Record<string, unknown>> | null;  // mdoc namespace definitions
+    // W3C VC / OBv3 fields
+    vc_contexts: string[] | null;           // JSON-LD @context list for ldp_vc / openbadge_v3 / jwt_vc_json-ld
+    vc_types: string[] | null;              // VC type[] list
+    achievement: Record<string, unknown> | null;  // openbadge_v3 achievement template
+    proof_suite: string | null;             // ldp_vc proof suite name (default Ed25519Signature2020)
+    signing_alg: string | null;             // jwt_vc_json signing algorithm (default EdDSA)
     created_at: Date;
     updated_at: Date;
 }
@@ -273,7 +282,7 @@ export async function oid4vciPendingOffersTable() {
                 access_token TEXT,
                 c_nonce TEXT,
                 status VARCHAR(20) DEFAULT 'pending',
-                format VARCHAR(20),
+                format VARCHAR(32),
                 doctype VARCHAR(255),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 expires_at TIMESTAMP NOT NULL,
@@ -302,7 +311,7 @@ export async function oid4vciPendingOffersTable() {
         // Add columns for existing tables (idempotent)
         await client.query(`
             ALTER TABLE oid4vci_pending_offers
-            ADD COLUMN IF NOT EXISTS format VARCHAR(20)
+            ADD COLUMN IF NOT EXISTS format VARCHAR(32)
         `)
         await client.query(`
             ALTER TABLE oid4vci_pending_offers
@@ -325,6 +334,24 @@ export async function oid4vciPendingOffersTable() {
             ALTER TABLE oid4vci_pending_offers
             ADD COLUMN IF NOT EXISTS wire_trace JSONB
         `)
+        // W3C VC / OBv3 OID4VCI columns
+        await client.query(`
+            ALTER TABLE oid4vci_pending_offers
+            ADD COLUMN IF NOT EXISTS vc_contexts JSONB
+        `)
+        await client.query(`
+            ALTER TABLE oid4vci_pending_offers
+            ADD COLUMN IF NOT EXISTS vc_types JSONB
+        `)
+        await client.query(`
+            ALTER TABLE oid4vci_pending_offers
+            ADD COLUMN IF NOT EXISTS achievement JSONB
+        `)
+        // Widen format column to fit longer enum values like 'jwt_vc_json-ld' / 'openbadge_v3'
+        await client.query(`
+            ALTER TABLE oid4vci_pending_offers
+            ALTER COLUMN format TYPE VARCHAR(32)
+        `).catch(() => { /* ignore on first creation */ })
 
         console.log("✅ OID4VCI pending offers table created or already exists.")
     } catch (error: any) {
@@ -395,11 +422,16 @@ export async function credentialDefinitionsTable() {
                 credential_definition_id TEXT NOT NULL,
                 schema_id TEXT NOT NULL,
                 tag VARCHAR(255) NOT NULL,
-                format VARCHAR(20) DEFAULT 'anoncreds',
+                format VARCHAR(32) DEFAULT 'anoncreds',
                 overlay JSONB,
                 schema_attributes JSONB,
                 doctype VARCHAR(255),
                 namespaces JSONB,
+                vc_contexts JSONB,
+                vc_types JSONB,
+                achievement JSONB,
+                proof_suite VARCHAR(64),
+                signing_alg VARCHAR(32),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -433,34 +465,56 @@ export async function credentialDefinitionsTable() {
 }
 
 /**
- * Add mdoc columns to existing credential_definitions table
+ * Add mdoc + W3C VC + OBv3 columns to existing credential_definitions table
  * Run this migration if the table already exists
  */
 export async function migrateMdocColumns() {
     const client = await db.connect()
     try {
-        // Add doctype column if it doesn't exist
         await client.query(`
             ALTER TABLE credential_definitions
             ADD COLUMN IF NOT EXISTS doctype VARCHAR(255)
         `)
-
-        // Add namespaces column if it doesn't exist
         await client.query(`
             ALTER TABLE credential_definitions
             ADD COLUMN IF NOT EXISTS namespaces JSONB
         `)
+        // W3C VC / OBv3 columns
+        await client.query(`
+            ALTER TABLE credential_definitions
+            ADD COLUMN IF NOT EXISTS vc_contexts JSONB
+        `)
+        await client.query(`
+            ALTER TABLE credential_definitions
+            ADD COLUMN IF NOT EXISTS vc_types JSONB
+        `)
+        await client.query(`
+            ALTER TABLE credential_definitions
+            ADD COLUMN IF NOT EXISTS achievement JSONB
+        `)
+        await client.query(`
+            ALTER TABLE credential_definitions
+            ADD COLUMN IF NOT EXISTS proof_suite VARCHAR(64)
+        `)
+        await client.query(`
+            ALTER TABLE credential_definitions
+            ADD COLUMN IF NOT EXISTS signing_alg VARCHAR(32)
+        `)
+        // Widen format column to accommodate longer enum values
+        await client.query(`
+            ALTER TABLE credential_definitions
+            ALTER COLUMN format TYPE VARCHAR(32)
+        `).catch(() => { /* ignore on first creation */ })
 
-        // Create index for doctype
         await client.query(`
             CREATE INDEX IF NOT EXISTS idx_cred_defs_doctype
             ON credential_definitions(doctype)
         `)
 
-        console.log("✅ mdoc columns migration completed.")
+        console.log("✅ credential_definitions schema migration completed.")
     } catch (error: any) {
         console.log(error)
-        console.error("❌ Error migrating mdoc columns:", error.message)
+        console.error("❌ Error migrating credential_definitions columns:", error.message)
     } finally {
         client.release()
     }

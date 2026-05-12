@@ -159,7 +159,11 @@ export default function FieldPlacementEditor({
             onTotalPagesChange={setTotalPages}
             onDrop={handleDrop}
             enableScrollPaging={true}
-            onPageClick={(page, x, y, dims, clientX, clientY) => {
+            // Right-click (or long-press on touch) to open the field-type
+            // menu. Left-click was previously bound here, which made the
+            // menu spring open on every page click and on drag-drop's
+            // synthetic click. Drops still place fields via onDrop.
+            onPageContextMenu={(page, x, y, dims, clientX, clientY) => {
               setContextMenu({
                 open: true,
                 x: clientX,
@@ -170,6 +174,8 @@ export default function FieldPlacementEditor({
                 dims,
               })
             }}
+            // Plain left-click on the page just dismisses the menu.
+            onPageClick={() => setContextMenu((prev) => ({ ...prev, open: false }))}
             searchQuery={searchQuery}
             searchActiveIndex={searchTotal > 0 ? searchIndex : undefined}
             onSearchResults={(total) => {

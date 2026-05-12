@@ -262,9 +262,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@ajna-inc/workflow@npm:0.6.1":
-  version: 0.6.1
-  resolution: "@ajna-inc/workflow@npm:0.6.1"
+"@ajna-inc/workflow@npm:0.6.82":
+  version: 0.6.82
+  resolution: "@ajna-inc/workflow@npm:0.6.82"
   dependencies:
     "@credo-ts/core": "npm:0.6.1"
     "@credo-ts/didcomm": "npm:0.6.1"
@@ -275,7 +275,7 @@ __metadata:
     jmespath: "npm:^0.16.0"
     rxjs: "npm:^7.8.2"
     semver: "npm:^7.6.3"
-  checksum: 10/03ea1d85572361b219765c2c1f81c053db809eeb974e4a81e7103b88839c83abc93f80ae3491bb847e8be9fd95399be66a9692c47dc403acd47be9aaa79e8cd3
+  checksum: 10/7a8f54bbeb400431dbc923b264b485060e582c67da2945907edeaffe84d885b32ffb19aae8d25287508fc91bb2d213a918235b49d9fdff021c4f1028d4d9dbaf
   languageName: node
   linkType: hard
 
@@ -5310,7 +5310,7 @@ __metadata:
     "@ajna-inc/signing": "npm:0.6.1"
     "@ajna-inc/vaults": "npm:0.6.2"
     "@ajna-inc/webrtc": "npm:0.6.1"
-    "@ajna-inc/workflow": "npm:0.6.1"
+    "@ajna-inc/workflow": "npm:0.6.82"
     "@ajna-inc/workflow-backend-express": "workspace:*"
     "@aws-sdk/client-s3": "npm:^3.966.0"
     "@aws-sdk/s3-request-presigner": "npm:^3.966.0"

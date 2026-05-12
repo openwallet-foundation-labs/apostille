@@ -15,6 +15,9 @@ import {
   verifyAndIssueAnonCredsCredential,
 } from '../services/oid4vci/anonCredsIssuance'
 import type { AnonCredsCredentialOffer } from '@credo-ts/anoncreds'
+import { issueOpenBadgeCredential } from '../services/oid4vci/openBadgeIssuance'
+import { signJwtVc, signLdpVc, ensureDidKeyForW3c } from '../services/oid4vci/w3cIssuance'
+import { OpenBadgesKeyBindingRepository } from '@ajna-inc/openbadges'
 
 const router = Router()
 
@@ -41,12 +44,18 @@ interface PendingOffer {
   accessToken?: string
   cNonce?: string
   status: 'pending' | 'token_issued' | 'credential_request_received' | 'credential_issued' | 'expired'
-  format?: 'vc+sd-jwt' | 'mso_mdoc' | 'anoncreds'  // Credential format
+  format?: 'vc+sd-jwt' | 'mso_mdoc' | 'anoncreds' | 'jwt_vc_json' | 'jwt_vc_json-ld' | 'ldp_vc' | 'openbadge_v3'
   doctype?: string  // For mdoc: e.g., 'org.iso.18013.5.1.mDL'
   // AnonCreds-only fields (per docs/specs/anoncreds-oid4vci-profile.md)
   credDefId?: string
   anoncredsOffer?: AnonCredsCredentialOffer
   revRegId?: string
+  // W3C VC / OBv3 fields
+  vcContexts?: string[]
+  vcTypes?: string[]
+  achievement?: Record<string, any>
+  proofSuite?: string
+  signingAlg?: string
   wireTrace?: WireTrace
   createdAt: string  // ISO string for serialization
   expiresAt: string  // ISO string for serialization
@@ -130,6 +139,9 @@ function hydrateOfferFromRow(row: any): PendingOffer {
     credDefId: row.cred_def_id ?? undefined,
     anoncredsOffer: parseJson(row.anoncreds_offer),
     revRegId: row.rev_reg_id ?? undefined,
+    vcContexts: parseJson(row.vc_contexts),
+    vcTypes: parseJson(row.vc_types),
+    achievement: parseJson(row.achievement),
     wireTrace: parseJson(row.wire_trace),
     createdAt: new Date(row.created_at).toISOString(),
     expiresAt: new Date(row.expires_at).toISOString(),
@@ -170,25 +182,76 @@ router.post('/offers', auth, async (req: Request, res: Response) => {
     const preAuthorizedCode = generateCode(32)
     const txCode = txCodeRequired ? generateCode(6).substring(0, 6).toUpperCase() : undefined
 
-    // Get credential definition format and doctype from database
-    let credFormat: 'vc+sd-jwt' | 'mso_mdoc' | 'anoncreds' = 'vc+sd-jwt'
+    // Resolve credential definition format.
+    //
+    // Storage split: OID4VC (SD-JWT) and mso_mdoc cred-defs live in the
+    // `credential_definitions` DB table; AnonCreds cred-defs live in the
+    // agent's anoncreds module (Askar). The DB query below catches the
+    // first two; the agent fallback catches the third. Without this
+    // fallback, AnonCreds cred-defs default to 'vc+sd-jwt' and the
+    // SD-JWT signing path fires on AnonCreds schemas, which fails.
+    let credFormat: PendingOffer['format']
     let doctype: string | undefined
     let supportsRevocation = false
+    let vcContexts: string[] | undefined
+    let vcTypes: string[] | undefined
+    let achievementTemplate: Record<string, any> | undefined
+    let proofSuite: string | undefined
+    let signingAlg: string | undefined
 
     try {
       const credDefResult = await db.query(
-        'SELECT format, doctype FROM credential_definitions WHERE credential_definition_id = $1 AND tenant_id = $2',
+        'SELECT format, doctype, vc_contexts, vc_types, achievement, proof_suite, signing_alg FROM credential_definitions WHERE credential_definition_id = $1 AND tenant_id = $2',
         [credentialDefinitionId, tenantId]
       )
       if (credDefResult.rows.length > 0) {
         const row = credDefResult.rows[0]
         if (row.format === 'mso_mdoc') credFormat = 'mso_mdoc'
         else if (row.format === 'anoncreds') credFormat = 'anoncreds'
-        else credFormat = 'vc+sd-jwt'
+        else if (row.format === 'oid4vc') credFormat = 'vc+sd-jwt'
+        else if (
+          row.format === 'jwt_vc_json' ||
+          row.format === 'jwt_vc_json-ld' ||
+          row.format === 'ldp_vc' ||
+          row.format === 'openbadge_v3'
+        ) {
+          credFormat = row.format
+        }
         doctype = row.doctype
+        const parseJson = (v: any) => {
+          if (v === null || v === undefined) return undefined
+          if (typeof v === 'object') return v
+          try { return JSON.parse(v) } catch { return undefined }
+        }
+        vcContexts = parseJson(row.vc_contexts)
+        vcTypes = parseJson(row.vc_types)
+        achievementTemplate = parseJson(row.achievement)
+        proofSuite = row.proof_suite ?? undefined
+        signingAlg = row.signing_alg ?? undefined
       }
     } catch (dbError: any) {
       console.warn('Failed to get credential definition format:', dbError.message)
+    }
+
+    // Fallback: not in the local table → look up the AnonCreds module.
+    if (!credFormat) {
+      try {
+        const agent = await getAgent({ tenantId })
+        const credDef = await agent.modules.anoncreds.getCredentialDefinition(credentialDefinitionId)
+        if (credDef?.credentialDefinition) {
+          credFormat = 'anoncreds'
+        }
+      } catch (e: any) {
+        console.warn('AnonCreds cred-def lookup failed:', e.message)
+      }
+    }
+
+    if (!credFormat) {
+      // Default for ancient cred-defs with no metadata anywhere.
+      credFormat = 'vc+sd-jwt'
+      console.warn(
+        `[oid4vci/offers] Could not determine format for credentialDefinitionId=${credentialDefinitionId}; defaulting to vc+sd-jwt`
+      )
     }
 
     // For AnonCreds, mint the credential offer object (nonce + key_correctness_proof)
@@ -231,6 +294,11 @@ router.post('/offers', auth, async (req: Request, res: Response) => {
       doctype,
       credDefId: credFormat === 'anoncreds' ? credentialDefinitionId : undefined,
       anoncredsOffer,
+      vcContexts,
+      vcTypes,
+      achievement: achievementTemplate,
+      proofSuite,
+      signingAlg,
       wireTrace: anoncredsOffer ? { offer: anoncredsOffer } : undefined,
       createdAt: now.toISOString(),
       expiresAt: expiresAt.toISOString(),
@@ -248,8 +316,8 @@ router.post('/offers', auth, async (req: Request, res: Response) => {
         INSERT INTO oid4vci_pending_offers (
           id, tenant_id, credential_definition_id, credential_configuration_id,
           credential_data, pre_authorized_code, tx_code, status, format, doctype,
-          cred_def_id, anoncreds_offer, wire_trace, expires_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          cred_def_id, anoncreds_offer, wire_trace, vc_contexts, vc_types, achievement, expires_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       `, [
         offerId, tenantId, credentialDefinitionId, credentialConfigurationId,
         JSON.stringify(credentialData), preAuthorizedCode, txCode, 'pending',
@@ -257,6 +325,9 @@ router.post('/offers', auth, async (req: Request, res: Response) => {
         offer.credDefId ?? null,
         offer.anoncredsOffer ? JSON.stringify(offer.anoncredsOffer) : null,
         offer.wireTrace ? JSON.stringify(offer.wireTrace) : null,
+        offer.vcContexts ? JSON.stringify(offer.vcContexts) : null,
+        offer.vcTypes ? JSON.stringify(offer.vcTypes) : null,
+        offer.achievement ? JSON.stringify(offer.achievement) : null,
         offer.expiresAt,
       ])
     } catch (dbError: any) {
@@ -573,7 +644,11 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
     }
 
     // ---- AnonCreds format branch (spec §6) ----
-    if ((offer.format ?? format) === 'anoncreds') {
+    // Trust only the offer's server-side format. The wallet's `format` field
+    // is informational — never let it override server-side state, otherwise
+    // a malicious or misconfigured wallet could trigger the AnonCreds branch
+    // for an SD-JWT/mdoc offer.
+    if (offer.format === 'anoncreds') {
       const proofType = proof?.proof_type
       if (proofType !== 'anoncreds') {
         return res.status(400).json({
@@ -656,6 +731,237 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
     }
     // ---- end AnonCreds branch ----
 
+    // ---- W3C VC / OBv3 branches (jwt_vc_json, jwt_vc_json-ld, ldp_vc, openbadge_v3) ----
+    if (
+      offer.format === 'jwt_vc_json' ||
+      offer.format === 'jwt_vc_json-ld' ||
+      offer.format === 'ldp_vc' ||
+      offer.format === 'openbadge_v3'
+    ) {
+      const proofType = proof?.proof_type
+      if (proofType && proofType !== 'jwt') {
+        return res.status(400).json({
+          error: 'invalid_proof',
+          error_description: `proof_type must be 'jwt' for ${offer.format} (got '${proofType}')`,
+        })
+      }
+
+      // Resolve holder DID from proof JWT (reuses the kid/jwk shape seen in
+      // the SD-JWT branch). We tolerate missing proofs for openbadge_v3 since
+      // OBv3 issuance can be holder-binding-optional.
+      let holderDidLocal: string | undefined
+      let holderJwkLocal: any
+      if (proof?.jwt) {
+        try {
+          const [headerB64] = proof.jwt.split('.')
+          const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString())
+          if (header.jwk) {
+            holderJwkLocal = header.jwk
+            const jwkB64 = Buffer.from(JSON.stringify(header.jwk)).toString('base64url')
+            holderDidLocal = `did:jwk:${jwkB64}`
+          } else if (typeof header.kid === 'string' && header.kid.startsWith('did:')) {
+            holderDidLocal = header.kid.split('#')[0]
+          }
+        } catch (proofError) {
+          console.warn(`[${offer.format}] Failed to parse proof JWT:`, proofError)
+        }
+      }
+
+      // Resolve schema attributes (best-effort) for non-OBv3 formats so we
+      // can pass `credentialSubject` claims to the W3C signer.
+      let claimAttrs: string[] = []
+      try {
+        const credDefResult = await db.query(
+          'SELECT schema_attributes FROM credential_definitions WHERE credential_definition_id = $1 AND tenant_id = $2',
+          [offer.credentialDefinitionId, tenantId]
+        )
+        if (credDefResult.rows.length > 0) {
+          const row = credDefResult.rows[0]
+          claimAttrs = Array.isArray(row.schema_attributes)
+            ? row.schema_attributes
+            : JSON.parse(row.schema_attributes || '[]')
+        }
+      } catch (e: any) {
+        console.warn(`[${offer.format}] Schema-attrs lookup failed:`, e.message)
+      }
+
+      const credentialSubjectClaims: Record<string, any> = {}
+      for (const attr of claimAttrs) {
+        if (offer.credentialData[attr] !== undefined) {
+          credentialSubjectClaims[attr] = offer.credentialData[attr]
+        }
+      }
+      // If no schema attributes are recorded (e.g. OBv3 cred-def with achievement
+      // template only), fall through to using credentialData directly.
+      const fallbackClaims =
+        claimAttrs.length === 0 ? { ...offer.credentialData } : credentialSubjectClaims
+
+      const cNonceForNext = generateCode(16)
+
+      try {
+        const agent = await getAgent({ tenantId })
+
+        if (offer.format === 'openbadge_v3') {
+          const hostname = new URL(apiBaseUrl).host
+          const issuerDid = `did:web:${hostname}:issuers:${tenantId}`
+          const achievementSrc = offer.achievement || {}
+          const recipient = offer.credentialData || {}
+
+          const verificationMethod = `${issuerDid}#key-0`
+          const openbadgesApi = (agent.modules as any)?.openbadges
+          if (!openbadgesApi) {
+            throw new Error('OpenBadges module not configured on tenant agent')
+          }
+          let binding = await openbadgesApi.ensureBinding(issuerDid, verificationMethod)
+          // Self-heal stale binding records that were created before kmsKeyId
+          // existed. Without kmsKeyId, DataIntegrityService cannot sign.
+          if (!binding?.kmsKeyId) {
+            console.warn('[OBv3] Stale key binding detected (missing kmsKeyId); recreating', { verificationMethod })
+            const bindingRepo: any = agent.dependencyManager.resolve(OpenBadgesKeyBindingRepository as any)
+            try {
+              const stale = await bindingRepo.findByVmId(agent.context, verificationMethod)
+              if (stale) {
+                await bindingRepo.delete(agent.context, stale)
+              }
+            } catch (e: any) {
+              console.warn('[OBv3] Failed deleting stale key binding:', e?.message || e)
+            }
+            binding = await openbadgesApi.ensureBinding(issuerDid, verificationMethod)
+            if (!binding?.kmsKeyId) {
+              throw new Error(`Failed to create kms-backed key binding for ${verificationMethod}`)
+            }
+          }
+
+          const { credential: obCredential } = await issueOpenBadgeCredential(agent, {
+            achievement: {
+              id: (recipient as any).achievementId || (achievementSrc as any).id,
+              type: (recipient as any).achievementTypeList || (achievementSrc as any).type,
+              achievementType: (recipient as any).achievementType || (achievementSrc as any).achievementType,
+              name: (recipient as any).achievementName || (achievementSrc as any).name || 'Achievement',
+              description: (recipient as any).achievementDescription || (achievementSrc as any).description || '',
+              criteria:
+                (recipient as any).achievementCriteria
+                  ? { narrative: (recipient as any).achievementCriteria }
+                  : (achievementSrc as any).criteria,
+              image: (recipient as any).achievementImage || (achievementSrc as any).image,
+            },
+            issuer: {
+              id: issuerDid,
+              name: process.env.ISSUER_NAME,
+              url: process.env.ISSUER_URL,
+            },
+            recipient: {
+              id: holderDidLocal || (recipient as any).recipientDid,
+              name: (recipient as any).recipientName || (recipient as any).name,
+              identifiers: (recipient as any).identifiers,
+              extras: claimAttrs.length > 0 ? credentialSubjectClaims : undefined,
+            },
+            verificationMethod,
+          })
+
+          const responseBody = {
+            format: 'ldp_vc',
+            credential: obCredential,
+            c_nonce: cNonceForNext,
+            c_nonce_expires_in: 300,
+          }
+
+          offer.status = 'credential_issued'
+          offer.cNonce = cNonceForNext
+          if (offer.wireTrace) offer.wireTrace.credentialResponse = responseBody
+          await pendingOffers.set(offer.id, offer)
+          try {
+            await db.query(
+              `UPDATE oid4vci_pending_offers SET status = 'credential_issued', issued_at = NOW(), c_nonce = $2 WHERE id = $1`,
+              [offer.id, cNonceForNext],
+            )
+          } catch (e) { console.warn('OBv3 offer update failed:', e) }
+          return res.json(responseBody)
+        }
+
+        // jwt_vc_json / jwt_vc_json-ld / ldp_vc — use Credo's W3cCredentialsApi
+        const { did: issuerDid, vmId } = await ensureDidKeyForW3c(agent, 'Ed25519')
+        const types = (offer.vcTypes && offer.vcTypes.length > 0)
+          ? offer.vcTypes
+          : ['VerifiableCredential', offer.credentialConfigurationId]
+        const contexts = offer.vcContexts
+        const credentialSubject = {
+          ...(holderDidLocal && { id: holderDidLocal }),
+          ...fallbackClaims,
+        }
+
+        if (offer.format === 'ldp_vc') {
+          const { credential } = await signLdpVc(agent, {
+            types,
+            issuerDid,
+            verificationMethod: vmId,
+            credentialSubject,
+            contexts,
+            proofType: offer.proofSuite || 'Ed25519Signature2020',
+          })
+          const responseBody = {
+            format: 'ldp_vc',
+            credential,
+            c_nonce: cNonceForNext,
+            c_nonce_expires_in: 300,
+          }
+          offer.status = 'credential_issued'
+          offer.cNonce = cNonceForNext
+          if (offer.wireTrace) offer.wireTrace.credentialResponse = responseBody
+          await pendingOffers.set(offer.id, offer)
+          try {
+            await db.query(
+              `UPDATE oid4vci_pending_offers SET status = 'credential_issued', issued_at = NOW(), c_nonce = $2 WHERE id = $1`,
+              [offer.id, cNonceForNext],
+            )
+          } catch (e) { console.warn('ldp_vc offer update failed:', e) }
+          return res.json(responseBody)
+        }
+
+        // jwt_vc_json or jwt_vc_json-ld
+        const { jwt } = await signJwtVc(agent, {
+          types,
+          issuerDid,
+          verificationMethod: vmId,
+          credentialSubject,
+          contexts,
+          alg: offer.signingAlg || 'EdDSA',
+          jsonLd: offer.format === 'jwt_vc_json-ld',
+        })
+
+        // Reference holderJwkLocal so it isn't flagged as unused; it's
+        // available for future binding validation but not required by Credo
+        // for signing.
+        void holderJwkLocal
+
+        const responseBody = {
+          format: offer.format,
+          credential: jwt,
+          c_nonce: cNonceForNext,
+          c_nonce_expires_in: 300,
+        }
+
+        offer.status = 'credential_issued'
+        offer.cNonce = cNonceForNext
+        if (offer.wireTrace) offer.wireTrace.credentialResponse = responseBody
+        await pendingOffers.set(offer.id, offer)
+        try {
+          await db.query(
+            `UPDATE oid4vci_pending_offers SET status = 'credential_issued', issued_at = NOW(), c_nonce = $2 WHERE id = $1`,
+            [offer.id, cNonceForNext],
+          )
+        } catch (e) { console.warn('jwt_vc offer update failed:', e) }
+        return res.json(responseBody)
+      } catch (w3cError: any) {
+        console.error(`[${offer.format}] Issuance failed:`, w3cError)
+        return res.status(500).json({
+          error: 'server_error',
+          error_description: `${offer.format} issuance failed: ${w3cError.message}`,
+        })
+      }
+    }
+    // ---- end W3C / OBv3 branches ----
+
     // Get schema attributes for this credential
     // First try to get from our OID4VC credential definitions table
     let schemaAttributes: string[] = []
@@ -678,8 +984,14 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
       console.warn('Failed to get OID4VC credential definition from database:', dbError.message)
     }
 
-    // If not found in our table, try to get from anoncreds module (for backward compatibility)
-    if (schemaAttributes.length === 0) {
+    // Demo/Fallback: If it's a dummy credential offer and not in DB, extract schema attributes from the provided credentialData
+    if (schemaAttributes.length === 0 && offer.credentialData && Object.keys(offer.credentialData).length > 0) {
+      schemaAttributes = Object.keys(offer.credentialData)
+      console.log(`[OID4VCI] Falling back to credentialData keys for schema attributes: ${schemaAttributes.join(', ')}`)
+    }
+
+    // If not found in our table or credentialData, try to get from anoncreds module (for backward compatibility)
+    if (schemaAttributes.length === 0 && offer.credentialDefinitionId) {
       try {
         const agent = await getAgent({ tenantId })
         const credDef = await agent.modules.anoncreds.getCredentialDefinition(offer.credentialDefinitionId)
@@ -871,21 +1183,39 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         }
       }
 
-      // Extract holder JWK from proof JWT for key binding
-      let holderBinding: { method: 'jwk'; jwk: any } | undefined
+      // Extract holder key binding from the wallet's proof JWT (per OID4VCI
+      // §7.2). Bifold and Credo wallets emit one of two shapes depending on
+      // the binding method picked by their resolver:
+      //   1. `header.jwk` — raw JWK binding ("method: jwk")
+      //   2. `header.kid` starting with `did:` — DID-based binding (did:jwk
+      //      or did:key); the kid is a verification-method id
+      //
+      // If we don't surface either to Credo's sdJwtVc.sign, the resulting
+      // credential is unbound — no `cnf` claim — and wallets that read
+      // `cnf.kid` for display purposes crash with
+      // "cannot read property kid of undefined".
+      let holderBinding: { method: 'jwk'; jwk: any } | { method: 'did'; didUrl: string } | undefined
       if (proof?.jwt) {
         try {
           const [headerB64] = proof.jwt.split('.')
           const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString())
           if (header.jwk) {
-            holderBinding = {
-              method: 'jwk',
-              jwk: header.jwk
-            }
-            console.log('[SD-JWT] Holder key binding extracted from proof JWT')
+            holderBinding = { method: 'jwk', jwk: header.jwk }
+            console.log('[SD-JWT] Holder key binding extracted from proof JWT (jwk)')
+          } else if (typeof header.kid === 'string' && header.kid.startsWith('did:')) {
+            // The kid is a verification method id. Ensure it includes the
+            // fragment — strip-and-rebuild only if a bare did was sent.
+            const didUrl = header.kid.includes('#') ? header.kid : `${header.kid}#0`
+            holderBinding = { method: 'did', didUrl }
+            console.log('[SD-JWT] Holder key binding extracted from proof JWT (did)', didUrl)
+          } else {
+            console.warn(
+              '[SD-JWT] Proof header has neither `jwk` nor a `did:` kid — credential will be unbound. Header:',
+              JSON.stringify(header),
+            )
           }
         } catch (proofError) {
-          console.warn('[SD-JWT] Failed to extract holder JWK from proof:', proofError)
+          console.warn('[SD-JWT] Failed to extract holder binding from proof:', proofError)
         }
       }
 

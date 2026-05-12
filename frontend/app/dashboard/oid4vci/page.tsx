@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   credentialDefinitionApi,
   oid4vciApi,
+  schemaApi,
   type CredentialFormat,
   type MdocCredentialData,
   type MdocNamespaceData,
@@ -46,9 +47,19 @@ interface CredentialOffer {
   format?: CredentialFormat;
 }
 
+interface SchemaSummary {
+  schemaId: string
+  name: string
+  version: string
+}
+
 export default function OID4VCIPage() {
   const { tenantId } = useAuth();
   const [credDefs, setCredDefs] = useState<CredentialDefinition[]>([]);
+  // Map of schemaId → { name, version } so the dropdown can render the
+  // schema's friendly name beside each cred-def (cred-def itself only
+  // carries the opaque schemaId).
+  const [schemasById, setSchemasById] = useState<Record<string, SchemaSummary>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,17 +81,41 @@ export default function OID4VCIPage() {
 
       setLoading(true);
       try {
-        const response = await credentialDefinitionApi.getAll();
-        const allCredDefs = response.credentialDefinitions || [];
+        const [credDefResp, schemasResp] = await Promise.all([
+          credentialDefinitionApi.getAll(),
+          schemaApi.getAll().catch(() => ({ schemas: [] })),
+        ]);
+        const allCredDefs = credDefResp.credentialDefinitions || [];
 
-        // Filter to show formats that support QR-based OID4VCI issuance
-        // (oid4vc / mso_mdoc / anoncreds — see docs/specs/anoncreds-oid4vci-profile.md).
+        // Filter to show formats that support QR-based OID4VCI issuance.
+        // Covers: oid4vc (SD-JWT VC), mso_mdoc, anoncreds, and the new
+        // W3C VC / OpenBadges v3 formats.
         const qrIssuableCredDefs = allCredDefs.filter(
           (cd: CredentialDefinition) =>
-            cd.format === 'oid4vc' || cd.format === 'mso_mdoc' || cd.format === 'anoncreds'
+            cd.format === 'oid4vc' ||
+            cd.format === 'mso_mdoc' ||
+            cd.format === 'anoncreds' ||
+            cd.format === 'jwt_vc_json' ||
+            cd.format === 'jwt_vc_json-ld' ||
+            cd.format === 'ldp_vc' ||
+            cd.format === 'openbadge_v3'
         );
 
+        // Build a lookup keyed by both Askar record id and the on-ledger
+        // schemaId — cred-defs reference either depending on storage path.
+        const lookup: Record<string, SchemaSummary> = {};
+        for (const s of schemasResp.schemas || []) {
+          const summary: SchemaSummary = {
+            schemaId: s.schemaId || s.id,
+            name: s.schema?.name || s._tags?.schemaName || '',
+            version: s.schema?.version || s._tags?.schemaVersion || '',
+          };
+          if (s.id) lookup[s.id] = summary;
+          if (s.schemaId) lookup[s.schemaId] = summary;
+        }
+
         setCredDefs(qrIssuableCredDefs);
+        setSchemasById(lookup);
         setError(null);
       } catch (err: any) {
         console.error('Error fetching credential definitions:', err);
@@ -376,10 +411,28 @@ export default function OID4VCIPage() {
                 const formatLabel =
                   cd.format === 'mso_mdoc' ? 'mDL/mdoc'
                   : cd.format === 'anoncreds' ? 'AnonCreds'
+                  : cd.format === 'openbadge_v3' ? 'OBv3'
+                  : cd.format === 'jwt_vc_json' ? 'jwt_vc_json'
+                  : cd.format === 'jwt_vc_json-ld' ? 'jwt_vc_json-ld'
+                  : cd.format === 'ldp_vc' ? 'ldp_vc'
                   : 'SD-JWT';
+                // Build the human label by combining (in priority order):
+                // OCA meta name → schema name+version → tag.
+                const schema = cd.schemaId ? schemasById[cd.schemaId] : undefined;
+                const schemaLabel = schema?.name
+                  ? `${schema.name}${schema.version ? ` v${schema.version}` : ''}`
+                  : ''
+                const friendly =
+                  cd.overlay?.meta?.name ||
+                  schemaLabel ||
+                  cd.tag
+                const suffix =
+                  schemaLabel && cd.overlay?.meta?.name && schemaLabel !== cd.overlay.meta.name
+                    ? ` · ${schemaLabel}`
+                    : ''
                 return (
                   <option key={cd.credentialDefinitionId} value={cd.credentialDefinitionId}>
-                    [{formatLabel}] {cd.overlay?.meta?.name || cd.tag}
+                    [{formatLabel}] {friendly}{suffix} · {cd.tag}
                   </option>
                 );
               })}
@@ -389,10 +442,15 @@ export default function OID4VCIPage() {
                 <span className={`badge ${
                   selectedCredDef.format === 'mso_mdoc' ? 'badge-success'
                   : selectedCredDef.format === 'anoncreds' ? 'badge-warning'
+                  : selectedCredDef.format === 'openbadge_v3' ? 'badge-info'
                   : 'badge-primary'
                 }`}>
                   {selectedCredDef.format === 'mso_mdoc' ? 'mDL/mdoc'
                     : selectedCredDef.format === 'anoncreds' ? 'AnonCreds (CL)'
+                    : selectedCredDef.format === 'openbadge_v3' ? 'OpenBadges v3 (ldp_vc)'
+                    : selectedCredDef.format === 'jwt_vc_json' ? 'W3C VC-JWT'
+                    : selectedCredDef.format === 'jwt_vc_json-ld' ? 'W3C VC-JWT (JSON-LD)'
+                    : selectedCredDef.format === 'ldp_vc' ? 'W3C Linked Data Proof VC'
                     : 'SD-JWT VC'}
                 </span>
                 {selectedCredDef.format === 'mso_mdoc' && selectedCredDef.doctype && (
@@ -400,6 +458,18 @@ export default function OID4VCIPage() {
                     {selectedCredDef.doctype.split('.').pop()}
                   </span>
                 )}
+                {(() => {
+                  const schema = selectedCredDef.schemaId
+                    ? schemasById[selectedCredDef.schemaId]
+                    : undefined
+                  if (!schema?.name) return null
+                  return (
+                    <span className="text-xs text-text-tertiary">
+                      Schema: <span className="font-medium text-text-secondary">{schema.name}</span>
+                      {schema.version && <span className="ml-1 font-mono">v{schema.version}</span>}
+                    </span>
+                  )
+                })()}
               </div>
             )}
           </div>
@@ -437,6 +507,114 @@ export default function OID4VCIPage() {
                 values={credentialData}
                 onChange={setCredentialData}
               />
+            </div>
+          )}
+
+          {/* Credential Data Fields - OpenBadges v3 */}
+          {selectedCredDef?.format === 'openbadge_v3' && (
+            <div className="mb-4">
+              <h3 className="text-sm font-medium text-text-secondary mb-3">OpenBadge recipient</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-text-tertiary mb-1">Recipient name</label>
+                  <input
+                    type="text"
+                    value={credentialData.recipientName || ''}
+                    onChange={(e) => setCredentialData({ ...credentialData, recipientName: e.target.value })}
+                    className="input w-full"
+                    placeholder="Alice Doe"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-tertiary mb-1">Recipient DID (optional)</label>
+                  <input
+                    type="text"
+                    value={credentialData.recipientDid || ''}
+                    onChange={(e) => setCredentialData({ ...credentialData, recipientDid: e.target.value })}
+                    className="input w-full"
+                    placeholder="did:key:... or did:jwk:..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-tertiary mb-1">Achievement name (override)</label>
+                  <input
+                    type="text"
+                    value={credentialData.achievementName || ''}
+                    onChange={(e) => setCredentialData({ ...credentialData, achievementName: e.target.value })}
+                    className="input w-full"
+                    placeholder="Leave blank to use cred-def template"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-tertiary mb-1">Achievement type (override)</label>
+                  <input
+                    type="text"
+                    value={credentialData.achievementType || ''}
+                    onChange={(e) => setCredentialData({ ...credentialData, achievementType: e.target.value })}
+                    className="input w-full"
+                    placeholder="Badge / Certificate / Degree"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs text-text-tertiary mb-1">Achievement description (override)</label>
+                  <input
+                    type="text"
+                    value={credentialData.achievementDescription || ''}
+                    onChange={(e) => setCredentialData({ ...credentialData, achievementDescription: e.target.value })}
+                    className="input w-full"
+                    placeholder="Optional per-offer override"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs text-text-tertiary mb-1">Achievement criteria (override)</label>
+                  <textarea
+                    value={credentialData.achievementCriteria || ''}
+                    onChange={(e) => setCredentialData({ ...credentialData, achievementCriteria: e.target.value })}
+                    className="input w-full"
+                    rows={2}
+                    placeholder="Optional per-offer override"
+                  />
+                </div>
+                {(selectedCredDef.schemaAttributes || []).map((attr) => (
+                  <div key={attr}>
+                    <label className="block text-xs text-text-tertiary mb-1">{attr}</label>
+                    <input
+                      type="text"
+                      value={credentialData[attr] || ''}
+                      onChange={(e) => setCredentialData({ ...credentialData, [attr]: e.target.value })}
+                      className="input w-full"
+                      placeholder={`Enter ${attr}`}
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-text-tertiary mt-2">
+                Achievement metadata is baked into this credential definition — only recipient-specific fields are needed per offer.
+              </p>
+            </div>
+          )}
+
+          {/* Credential Data Fields - generic W3C VC formats */}
+          {(selectedCredDef?.format === 'jwt_vc_json' ||
+            selectedCredDef?.format === 'jwt_vc_json-ld' ||
+            selectedCredDef?.format === 'ldp_vc') &&
+            (selectedCredDef.schemaAttributes || []).length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-sm font-medium text-text-secondary mb-3">credentialSubject attributes</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(selectedCredDef.schemaAttributes || []).map((attr) => (
+                  <div key={attr}>
+                    <label className="block text-xs text-text-tertiary mb-1">{attr}</label>
+                    <input
+                      type="text"
+                      value={credentialData[attr] || ''}
+                      onChange={(e) => setCredentialData({ ...credentialData, [attr]: e.target.value })}
+                      className="input w-full"
+                      placeholder={`Enter ${attr}`}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

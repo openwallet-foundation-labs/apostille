@@ -37,6 +37,8 @@ interface PdfViewerProps {
   searchActiveIndex?: number
   onSearchResults?: (total: number) => void
   onPageClick?: (page: number, x: number, y: number, dims: PageDimensions, clientX: number, clientY: number) => void
+  /** Right-click / long-press context menu. Same params as onPageClick. */
+  onPageContextMenu?: (page: number, x: number, y: number, dims: PageDimensions, clientX: number, clientY: number) => void
   enableScrollPaging?: boolean
 }
 
@@ -55,6 +57,7 @@ export default function PdfViewer({
   searchActiveIndex,
   onSearchResults,
   onPageClick,
+  onPageContextMenu,
   enableScrollPaging = false,
 }: PdfViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -124,32 +127,38 @@ export default function PdfViewer({
 
     async function renderPage() {
       const pdfPage: PDFPageProxy = await pdfDoc!.getPage(page + 1) // 1-indexed
-      const viewport = pdfPage.getViewport({ scale })
+      const dpr = window.devicePixelRatio || 1
+
+      // Bake DPR into the viewport scale so the bitmap is rendered at the
+      // exact pixel resolution we want — no second DPR pass from pdfjs.
+      // Using `canvasContext` opts out of pdfjs v5's auto-DPR behaviour,
+      // which was producing faded / clipped renders when render() ran more
+      // than once (the search-matches effect retriggers this hook on every
+      // page change).
+      const viewport = pdfPage.getViewport({ scale: scale * dpr })
       const canvas = canvasRef.current!
       const ctx = canvas.getContext('2d')!
 
-      // High DPI support
-      const dpr = window.devicePixelRatio || 1
-      canvas.width = viewport.width * dpr
-      canvas.height = viewport.height * dpr
-      canvas.style.width = `${viewport.width}px`
-      canvas.style.height = `${viewport.height}px`
-      ctx.setTransform(1, 0, 0, 1, 0, 0)
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      // Setting canvas.width clears the bitmap and resets transforms — that's
+      // exactly what we want before each render to avoid ghost pixels.
+      canvas.width = viewport.width
+      canvas.height = viewport.height
+      canvas.style.width = `${viewport.width / dpr}px`
+      canvas.style.height = `${viewport.height / dpr}px`
 
       if (!cancelled) {
-        setPageDimensions({ width: viewport.width, height: viewport.height })
+        setPageDimensions({ width: viewport.width / dpr, height: viewport.height / dpr })
       }
 
       renderTaskRef.current?.cancel?.()
-      const renderTask = pdfPage.render({
-        canvasContext: ctx,
-        viewport,
-        canvas: canvasRef.current!,
-      })
+      const renderTask = pdfPage.render({ canvasContext: ctx, viewport } as any)
       renderTaskRef.current = renderTask
-      await renderTask.promise
+      try {
+        await renderTask.promise
+      } catch (err: any) {
+        // Cancelled renders throw — swallow to avoid noisy errors.
+        if (err?.name !== 'RenderingCancelledException') throw err
+      }
 
       if (!cancelled) {
         const pageRects = allMatches.filter((m) => m.page === page)
@@ -270,9 +279,18 @@ export default function PdfViewer({
     [onScaleChange]
   )
 
+  // Tracks whether the most recent pointer interaction was a drop, so we can
+  // suppress the synthetic click that some browsers fire after a drag-drop.
+  const justDroppedRef = useRef(false)
+
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault()
+      justDroppedRef.current = true
+      // Reset shortly after so a real, separate click still works.
+      setTimeout(() => {
+        justDroppedRef.current = false
+      }, 250)
       onDrop?.(e, page, pageDimensions)
     },
     [onDrop, page, pageDimensions]
@@ -280,6 +298,7 @@ export default function PdfViewer({
 
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (justDroppedRef.current) return
       if (e.button !== 0) return
       if (!onPageClick || !canvasRef.current) return
       const rect = canvasRef.current.getBoundingClientRect()
@@ -290,6 +309,20 @@ export default function PdfViewer({
       e.stopPropagation()
     },
     [onPageClick, page, pageDimensions]
+  )
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!onPageContextMenu || !canvasRef.current) return
+      e.preventDefault()
+      const rect = canvasRef.current.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+      if (x < 0 || y < 0 || x > rect.width || y > rect.height) return
+      onPageContextMenu(page, x, y, pageDimensions, e.clientX, e.clientY)
+      e.stopPropagation()
+    },
+    [onPageContextMenu, page, pageDimensions]
   )
 
   const handleWheel = useCallback(
@@ -369,6 +402,7 @@ export default function PdfViewer({
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
         onWheel={handleWheel}
       >
         <canvas ref={canvasRef} className="block" />

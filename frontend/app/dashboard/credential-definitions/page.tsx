@@ -102,6 +102,18 @@ export default function CredentialDefinitionsPage() {
   const [mdocSelectedAttributes, setMdocSelectedAttributes] = useState<string[]>([]);
   const [mdocNamespaces, setMdocNamespaces] = useState<MdocNamespaceData>({});
 
+  // W3C VC / OBv3 specific state
+  const [w3cVcTypes, setW3cVcTypes] = useState<string>('VerifiableCredential');
+  const [w3cVcContexts, setW3cVcContexts] = useState<string>('');
+  const [w3cAttributesText, setW3cAttributesText] = useState<string>('');
+  const [w3cProofSuite, setW3cProofSuite] = useState<string>('Ed25519Signature2020');
+  const [w3cSigningAlg, setW3cSigningAlg] = useState<string>('EdDSA');
+  const [obAchievementName, setObAchievementName] = useState<string>('');
+  const [obAchievementDesc, setObAchievementDesc] = useState<string>('');
+  const [obAchievementType, setObAchievementType] = useState<string>('Badge');
+  const [obAchievementCriteria, setObAchievementCriteria] = useState<string>('');
+  const [obAchievementImage, setObAchievementImage] = useState<string>('');
+
   // OCA Overlay state
   const [showOverlayFields, setShowOverlayFields] = useState<boolean>(false);
   const [overlayMeta, setOverlayMeta] = useState({
@@ -478,11 +490,28 @@ export default function CredentialDefinitionsPage() {
   const handleCreateCredDef = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // For mdoc format, only tag is required (no schema needed)
-    if (credentialFormat === 'mso_mdoc') {
-      if (!tenantId || !tag) return;
+    const isSchemaLessFormat =
+      credentialFormat === 'mso_mdoc' ||
+      credentialFormat === 'jwt_vc_json' ||
+      credentialFormat === 'jwt_vc_json-ld' ||
+      credentialFormat === 'ldp_vc' ||
+      credentialFormat === 'openbadge_v3'
+
+    // mdoc + W3C/OBv3 formats are schema-less in this UI path.
+    if (isSchemaLessFormat) {
+      if (!tenantId || !tag) {
+        setError('Tag is required')
+        return
+      }
+      if (credentialFormat === 'openbadge_v3' && !obAchievementName.trim()) {
+        setError('Achievement name is required for OpenBadges v3')
+        return
+      }
     } else {
-      if (!tenantId || !selectedSchemaId || !tag) return;
+      if (!tenantId || !selectedSchemaId || !tag) {
+        setError('Schema and tag are required')
+        return
+      }
     }
 
     setCreating(true);
@@ -728,6 +757,61 @@ export default function CredentialDefinitionsPage() {
           namespaces: mdocNamespaces,
           overlay,
         });
+      } else if (
+        credentialFormat === 'jwt_vc_json' ||
+        credentialFormat === 'jwt_vc_json-ld' ||
+        credentialFormat === 'ldp_vc' ||
+        credentialFormat === 'openbadge_v3'
+      ) {
+        const types = w3cVcTypes.split(',').map(s => s.trim()).filter(Boolean)
+        const contexts = w3cVcContexts.split(',').map(s => s.trim()).filter(Boolean)
+        const attributes = w3cAttributesText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
+        const w3cOptions = {
+          vcTypes: types.length > 0 ? types : undefined,
+          vcContexts: contexts.length > 0 ? contexts : undefined,
+          schemaAttributes: attributes.length > 0 ? attributes : undefined,
+          proofSuite: credentialFormat === 'ldp_vc' ? w3cProofSuite : undefined,
+          signingAlg: credentialFormat === 'jwt_vc_json' || credentialFormat === 'jwt_vc_json-ld'
+            ? w3cSigningAlg
+            : undefined,
+          achievement: credentialFormat === 'openbadge_v3' && obAchievementName
+            ? {
+                name: obAchievementName,
+                description: obAchievementDesc,
+                achievementType: obAchievementType,
+                ...(obAchievementCriteria && { criteria: { narrative: obAchievementCriteria } }),
+                ...(obAchievementImage && { image: obAchievementImage }),
+              }
+            : undefined,
+        }
+
+        // Make OBv3 credential definitions human-readable in dropdowns and
+        // credential cards even when no template is selected.
+        const effectiveOverlay = credentialFormat === 'openbadge_v3'
+          ? {
+              ...overlay,
+              meta: {
+                ...(overlay?.meta || {}),
+                name: overlay?.meta?.name || obAchievementName || tag,
+                description:
+                  overlay?.meta?.description ||
+                  obAchievementDesc ||
+                  'OpenBadge v3 credential',
+                issuer: overlay?.meta?.issuer || process.env.NEXT_PUBLIC_ISSUER_NAME || 'ESSI Studio',
+                credential_type: 'openbadge_v3',
+              },
+            }
+          : overlay
+
+        response = await credentialDefinitionApi.create(
+          selectedSchemaId || `${credentialFormat}:${tag}`,
+          tag,
+          supportRevocation,
+          effectiveOverlay,
+          credentialFormat,
+          undefined,
+          w3cOptions,
+        )
       } else {
         if (!selectedSchema) {
           throw new Error('Selected schema not found');
@@ -947,6 +1031,26 @@ export default function CredentialDefinitionsPage() {
         creating={creating}
         onSubmit={handleCreateCredDef}
         error={error}
+        w3cVcTypes={w3cVcTypes}
+        setW3cVcTypes={setW3cVcTypes}
+        w3cVcContexts={w3cVcContexts}
+        setW3cVcContexts={setW3cVcContexts}
+        w3cAttributesText={w3cAttributesText}
+        setW3cAttributesText={setW3cAttributesText}
+        w3cProofSuite={w3cProofSuite}
+        setW3cProofSuite={setW3cProofSuite}
+        w3cSigningAlg={w3cSigningAlg}
+        setW3cSigningAlg={setW3cSigningAlg}
+        obAchievementName={obAchievementName}
+        setObAchievementName={setObAchievementName}
+        obAchievementDesc={obAchievementDesc}
+        setObAchievementDesc={setObAchievementDesc}
+        obAchievementType={obAchievementType}
+        setObAchievementType={setObAchievementType}
+        obAchievementCriteria={obAchievementCriteria}
+        setObAchievementCriteria={setObAchievementCriteria}
+        obAchievementImage={obAchievementImage}
+        setObAchievementImage={setObAchievementImage}
       />
 
       {/* Credential Definition Details Modal — new design */}

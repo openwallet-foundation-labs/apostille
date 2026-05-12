@@ -1,0 +1,20 @@
+{
+  "access_token": "9c1bdf63a3e84fcc8b0e67bd5cd92f7a3a7ddc4f1b2e448aa2d3c0e2f1fa9de8",
+  "token_type": "Bearer",
+  "expires_in": 300,
+  "c_nonce": "987654321012345678901234",
+  "c_nonce_expires_in": 300,
+  "anoncreds_offer": {
+    "schema_id": "did:ajna:kanon:1:degree:1.0",
+    "cred_def_id": "did:ajna:kanon:3:CL:17:default",
+    "nonce": "987654321012345678901234",
+    "key_correctness_proof": {
+      "c": "67890123456789012345678901234567890123456789",
+      "xz_cap": "11111111111111111111111111111111111111111",
+      "xr_cap": [
+        ["master_secret", "22222222222222222222222222222222"],
+        ["name", "33333333333333333333333333333333"]
+      ]
+    }
+  }
+}

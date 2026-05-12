@@ -236,27 +236,16 @@ export const connectionApi = {
  * Demo API functions
  */
 export const demoApi = {
-  createInvitation: async (label: string, goal: string) => {
-    return fetchWithErrorHandling(`${API_BASE_URL}/api/demo?label=${encodeURIComponent(label)}&goal=${encodeURIComponent(goal)}`);
-  },
-
-  // Get connection ID from OOB invitation ID
-  getConnection: async (oobId: string) => {
-    return fetchWithErrorHandling(`${API_BASE_URL}/api/demo/connection/${encodeURIComponent(oobId)}`);
-  },
-
-  // Request proof verification (no auth required)
-  requestProof: async (connectionId: string, userType: 'student' | 'lawyer') => {
-    return fetchWithErrorHandling(`${API_BASE_URL}/api/demo/proof`, {
+  createOid4vcOffer: async (credentialType: string, recipientName: string = '') => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/demo/oid4vc-offer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ connectionId, userType })
+      body: JSON.stringify({ credentialType, recipientName })
     });
   },
 
-  // Get proof status and disclosed attributes
-  getProof: async (proofId: string) => {
-    return fetchWithErrorHandling(`${API_BASE_URL}/api/demo/proof/${encodeURIComponent(proofId)}`);
+  getOid4vcOfferStatus: async (offerId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/demo/oid4vc-offer/${encodeURIComponent(offerId)}/status`);
   }
 };
 
@@ -421,8 +410,34 @@ export const MID_STANDARD_ATTRIBUTES: MdocNamespace = {
   sex: { type: 'uint', required: false, display: 'Sex' },
 };
 
-// Credential definition types including mdoc
-export type CredentialFormat = 'anoncreds' | 'oid4vc' | 'mso_mdoc';
+// Credential definition types including mdoc, W3C VC formats and OpenBadges v3
+export type CredentialFormat =
+  | 'anoncreds'
+  | 'oid4vc'
+  | 'mso_mdoc'
+  | 'jwt_vc_json'
+  | 'jwt_vc_json-ld'
+  | 'ldp_vc'
+  | 'openbadge_v3';
+
+export interface AchievementTemplate {
+  id?: string;
+  type?: string | string[];
+  achievementType?: string;
+  name: string;
+  description?: string;
+  criteria?: { id?: string; narrative?: string } | string;
+  image?: string | { id: string; type?: string };
+}
+
+export interface W3cCredDefOptions {
+  vcContexts?: string[];
+  vcTypes?: string[];
+  achievement?: AchievementTemplate;
+  proofSuite?: string;
+  signingAlg?: string;
+  schemaAttributes?: string[];
+}
 
 export interface MdocCredentialDefinitionParams {
   format: 'mso_mdoc';
@@ -479,7 +494,8 @@ export const credentialDefinitionApi = {
     mdocOptions?: {
       doctype?: string;
       namespaces?: MdocNamespaceData;
-    }
+    },
+    w3cOptions?: W3cCredDefOptions,
   ) => {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/credential-definitions`, {
       method: 'POST',
@@ -493,7 +509,18 @@ export const credentialDefinitionApi = {
         ...(format === 'mso_mdoc' && mdocOptions ? {
           doctype: mdocOptions.doctype,
           namespaces: mdocOptions.namespaces,
-        } : {})
+        } : {}),
+        ...((format === 'jwt_vc_json' ||
+             format === 'jwt_vc_json-ld' ||
+             format === 'ldp_vc' ||
+             format === 'openbadge_v3') && w3cOptions ? {
+          vcContexts: w3cOptions.vcContexts,
+          vcTypes: w3cOptions.vcTypes,
+          achievement: w3cOptions.achievement,
+          proofSuite: w3cOptions.proofSuite,
+          signingAlg: w3cOptions.signingAlg,
+          schemaAttributes: w3cOptions.schemaAttributes,
+        } : {}),
       })
     });
   },
