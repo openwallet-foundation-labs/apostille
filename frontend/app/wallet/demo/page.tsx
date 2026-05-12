@@ -1,11 +1,9 @@
-import MultiStepForm from "../_components/MultiStepForm";
+import OID4VCDemo from "../_components/OID4VCDemo";
 
-interface pageProps {
-    
-}
+interface pageProps {}
 
 export default function page({}: pageProps) {
     return (
-        <MultiStepForm />
+        <OID4VCDemo />
     )
 }

@@ -82,6 +82,16 @@ const CREDENTIALS = [
     desc: 'Introduction to Web Development',
     badgeType: 'CourseRecord',
     criteria: 'Completed all course modules and the final capstone project.'
+  },
+
+  // mDL (ISO 18013-5)
+  {
+    id: 'mDL',
+    name: "Mobile Driver's License",
+    icon: '🪪',
+    type: 'mdl',
+    desc: 'ISO 18013-5 compliant mDL with driving privileges',
+    attributes: ['given_name', 'family_name', 'birth_date', 'document_number', 'issue_date', 'expiry_date', 'issuing_country', 'driving_privileges', 'age_over_18']
   }
 ];
 
@@ -247,6 +257,15 @@ export default function OID4VCDemo() {
               <h2 className="text-sm font-bold text-text-tertiary uppercase tracking-wider mb-4">Open Badges (OBv3)</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {CREDENTIALS.filter(c => c.type === 'obv3').map(renderCompactCard)}
+              </div>
+            </div>
+
+            <div>
+              <h2 className="text-sm font-bold text-text-tertiary uppercase tracking-wider mb-4">
+                Mobile Document (ISO 18013-5)
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {CREDENTIALS.filter(c => c.type === 'mdl').map(renderCompactCard)}
               </div>
             </div>
           </div>

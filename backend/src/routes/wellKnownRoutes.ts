@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { getAgent } from '../services/agentService'
 import { db } from '../db/driver'
-import { buildMdocClaimsFromNamespaces } from '../utils/mdlUtils'
+import { buildMdocClaimsFromNamespaces, MDL_DOCTYPE, MDL_NAMESPACE } from '../utils/mdlUtils'
 import { cacheStores } from '../services/redis/cacheStore'
 import { getMdocCertificateConfig, pemToBase64Der } from '../config/mdlCertificates'
 
@@ -571,7 +571,44 @@ export function createIssuerRoutes(): Router {
             };
           }
         }
-      }
+
+        // mDL (ISO 18013-5)
+        if (!credentialConfigurations['mDL']) {
+          credentialConfigurations['mDL'] = {
+            format: 'mso_mdoc',
+            doctype: MDL_DOCTYPE,
+            scope: 'mDL',
+            cryptographic_binding_methods_supported: ['jwk'],
+            credential_signing_alg_values_supported: ['ES256'],
+            proof_types_supported: {
+              jwt: { proof_signing_alg_values_supported: ['ES256'] }
+            },
+            display: [{
+              name: 'Mobile Driver\'s License',
+              description: 'ISO 18013-5 compliant Mobile Driver\'s License (mDL)',
+              background_color: '#0F4C81',
+              text_color: '#FFFFFF',
+              locale: 'en'
+            }],
+            claims: {
+              [MDL_NAMESPACE]: {
+                given_name:           { display: [{ name: 'Given Name', locale: 'en' }], mandatory: true },
+                family_name:          { display: [{ name: 'Family Name', locale: 'en' }], mandatory: true },
+                birth_date:           { display: [{ name: 'Date of Birth', locale: 'en' }], mandatory: true },
+                document_number:      { display: [{ name: 'Document Number', locale: 'en' }], mandatory: true },
+                issue_date:           { display: [{ name: 'Issue Date', locale: 'en' }], mandatory: true },
+                expiry_date:          { display: [{ name: 'Expiry Date', locale: 'en' }], mandatory: true },
+                issuing_country:      { display: [{ name: 'Issuing Country', locale: 'en' }], mandatory: true },
+                issuing_authority:    { display: [{ name: 'Issuing Authority', locale: 'en' }], mandatory: true },
+                issuing_jurisdiction: { display: [{ name: 'Issuing Jurisdiction', locale: 'en' }] },
+                driving_privileges:   { display: [{ name: 'Driving Privileges', locale: 'en' }], mandatory: true },
+                age_over_18:          { display: [{ name: 'Age Over 18', locale: 'en' }] },
+                age_over_21:          { display: [{ name: 'Age Over 21', locale: 'en' }] },
+              }
+            }
+          };
+        }
+      } // end if (tenantId === PLATFORM_TENANT_ID)
 
       // Check if tenantId looks like a UUID (valid format)
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

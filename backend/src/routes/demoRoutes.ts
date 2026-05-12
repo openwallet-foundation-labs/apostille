@@ -3,6 +3,7 @@ import { getAgent } from '../services/agentService';
 import crypto from 'crypto';
 import { StateStore } from '../services/redis/stateStore';
 import { db } from '../db/driver';
+import { MDL_DOCTYPE } from '../utils/mdlUtils';
 
 const router = Router();
 const DEMO_TENANT_ID = process.env.PLATFORM_TENANT_ID;
@@ -192,6 +193,36 @@ const DEMO_CREDENTIAL_TYPES: Record<string, any> = {
       description: 'Successfully completed the introductory course covering HTML, CSS, and JavaScript basics.',
       criteria: { narrative: 'Completed all course modules and the final capstone project.' }
     }
+  },
+
+  // mDL Tier (ISO 18013-5)
+  'mDL': {
+    format: 'mso_mdoc' as const,
+    credentialConfigurationId: 'mDL',
+    doctype: MDL_DOCTYPE,
+    generateData: (name: string) => {
+      const [given, family] = name.split(' ');
+      const today = new Date();
+      const expiry = new Date(today);
+      expiry.setFullYear(expiry.getFullYear() + 5);
+      return {
+        given_name: given || 'Alice',
+        family_name: family || 'Johnson',
+        birth_date: '1990-07-15',
+        document_number: 'DL-' + Math.floor(Math.random() * 9000000 + 1000000),
+        issue_date: today.toISOString().split('T')[0],
+        expiry_date: expiry.toISOString().split('T')[0],
+        issuing_country: 'US',
+        issuing_authority: 'Department of Motor Vehicles',
+        issuing_jurisdiction: 'US-CA',
+        driving_privileges: [
+          { vehicle_category_code: 'B', issue_date: today.toISOString().split('T')[0], expiry_date: expiry.toISOString().split('T')[0] }
+        ],
+        age_over_18: true,
+        age_over_21: true,
+        portrait: '',  // wallets gracefully handle missing portrait
+      };
+    }
   }
 };
 
@@ -246,6 +277,7 @@ router.post('/oid4vc-offer', async (req: Request, res: Response) => {
       preAuthorizedCode,
       status: 'pending',
       format: config.format,
+      doctype: config.doctype,  // mDL / mso_mdoc doctype
       achievement: config.achievement,
       createdAt: now.toISOString(),
       expiresAt: expiresAt.toISOString(),
