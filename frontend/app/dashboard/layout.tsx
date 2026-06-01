@@ -1,6 +1,6 @@
 'use client'
 
-import { ReactNode } from 'react'
+import { ReactNode, Suspense } from 'react'
 import ClientLayout from '../components/ClientLayout'
 
 interface DashboardLayoutProps {
@@ -8,5 +8,9 @@ interface DashboardLayoutProps {
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  return <ClientLayout>{children}</ClientLayout>
+  return (
+    <Suspense>
+      <ClientLayout>{children}</ClientLayout>
+    </Suspense>
+  )
 } 

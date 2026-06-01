@@ -61,7 +61,7 @@ import { VaultsModule } from '@ajna-inc/vaults'
 // import { GroupMessagingModule } from '@ajna-inc/group-messaging' // Disabled: group-messaging package not available for Credo 0.6.x
 import { PoeModule } from '@ajna-inc/poe'
 import { CalendarModule } from '@ajna-inc/calendar'
-import { OpenBadgesModule, OpenBadgesCredentialFormatService, OpenBadgesProofFormatService } from '@ajna-inc/openbadges'
+import { OpenBadgesModule } from '@ajna-inc/openbadges'
 import { OpenId4VcIssuerModule, OpenId4VcVerifierModule } from '@credo-ts/openid4vc'
 import { getMockPoePrograms } from '../poe/MockPoeProgram'
 import { CacheStore } from './redis/cacheStore'
@@ -458,7 +458,6 @@ async function initializeAgent(
                             new DidCommProofV2Protocol({
                                 proofFormats: [
                                     new AnonCredsDidCommProofFormatService(),
-                                    new OpenBadgesProofFormatService(),
                                 ],
                             }),
                         ],
@@ -469,7 +468,6 @@ async function initializeAgent(
                             new DidCommCredentialV2Protocol({
                                 credentialFormats: [
                                     new AnonCredsDidCommCredentialFormatService(),
-                                    new OpenBadgesCredentialFormatService(),
                                 ],
                             }),
                         ],

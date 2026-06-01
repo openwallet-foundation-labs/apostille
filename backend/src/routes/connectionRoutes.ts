@@ -108,6 +108,32 @@ router.route('/:connectionId')
         message: error.message || 'Failed to get connection'
       });
     }
+  })
+  .delete(auth, async (req: Request, res: Response) => {
+    try {
+      const { connectionId } = req.params;
+      const tenantId = req.user.tenantId;
+
+      if (!tenantId) {
+        res.status(400).json({ success: false, message: 'Tenant ID not found in authentication token' });
+        return;
+      }
+
+      const agent = await getAgent({ tenantId });
+      const connection = await agent.didcomm.connections.findById(connectionId);
+
+      if (!connection) {
+        res.status(404).json({ success: false, message: `Connection with ID ${connectionId} not found` });
+        return;
+      }
+
+      await agent.didcomm.connections.deleteById(connectionId);
+
+      res.status(200).json({ success: true, message: 'Connection deleted' });
+    } catch (error: any) {
+      console.error(`Failed to delete connection ${req.params.connectionId}:`, error);
+      res.status(500).json({ success: false, message: error.message || 'Failed to delete connection' });
+    }
   });
 
 /**
