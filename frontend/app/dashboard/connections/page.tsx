@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { apiGet, apiPost, getHeaders } from '../../utils/api';
 import Link from 'next/link';
@@ -87,6 +88,8 @@ interface MessagesResponse {
 
 
 export default function ConnectionsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { tenantId, token } = useAuth();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -118,6 +121,29 @@ export default function ConnectionsPage() {
   const [kemStatuses, setKemStatuses] = useState<Record<string, KemStatus>>({});
   const [exchangingKeys, setExchangingKeys] = useState<Record<string, boolean>>({});
   const [acceptingKeys, setAcceptingKeys] = useState<Record<string, boolean>>({});
+
+  // Sort + remove state
+  type ConnSortKey = 'label' | 'state' | 'role' | 'createdAt';
+  const [connSort, setConnSort] = useState<{ key: ConnSortKey; dir: 'asc' | 'desc' }>({ key: 'createdAt', dir: 'desc' });
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+
+  const CONN_STATE_RANK: Record<string, number> = {
+    completed: 0, complete: 0,
+    'await-response': 1,
+    request: 2,
+    response: 3,
+    invitation: 4,
+  };
+  function connStateRank(state: string) { return CONN_STATE_RANK[state?.toLowerCase()] ?? 99; }
+
+  function toggleConnSort(key: ConnSortKey) {
+    setConnSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+  function connSortArrow(key: ConnSortKey) {
+    if (connSort.key !== key) return <span style={{ color: 'var(--ink-5)', marginLeft: 4 }}>↕</span>;
+    return <span style={{ marginLeft: 4 }}>{connSort.dir === 'asc' ? '↑' : '↓'}</span>;
+  }
 
 
 
@@ -247,10 +273,10 @@ export default function ConnectionsPage() {
               // Only update if status changed to avoid unnecessary re-renders
               const existing = prev[conn.id];
               if (existing &&
-                  existing.hasLocalKey === response.status.hasLocalKey &&
-                  existing.hasPeerKey === response.status.hasPeerKey &&
-                  existing.hasPendingRequest === response.status.hasPendingRequest &&
-                  existing.ready === response.status.ready) {
+                existing.hasLocalKey === response.status.hasLocalKey &&
+                existing.hasPeerKey === response.status.hasPeerKey &&
+                existing.hasPendingRequest === response.status.hasPendingRequest &&
+                existing.ready === response.status.ready) {
                 return prev;
               }
               return {
@@ -269,6 +295,18 @@ export default function ConnectionsPage() {
       fetchKemStatuses();
     }
   }, [connections, notifications]);
+
+  // Auto-open message dialog when navigated from a notification deep link
+  useEffect(() => {
+    const openId = searchParams.get('openConnection');
+    if (!openId || connections.length === 0) return;
+    const conn = connections.find((c) => c.id === openId);
+    if (!conn) return;
+    router.replace('/dashboard/connections');
+    void openMessageModal(conn);
+    // openMessageModal is stable within a render; eslint-disable to avoid stale dep warning
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connections, searchParams]);
 
   // Handle key exchange (initiate)
   const handleExchangeKeys = async (connectionId: string) => {
@@ -552,12 +590,49 @@ export default function ConnectionsPage() {
     return message.role === 'sender';
   };
 
-  const AVATAR_CLASSES = ['a1','a2','a3','a4','a5','a6'];
+  const AVATAR_CLASSES = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6'];
   const getAvatar = (name: string, idx: number) => {
     const cls = AVATAR_CLASSES[idx % AVATAR_CLASSES.length];
-    const initials = (name || '??').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+    const initials = (name || '??').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
     return <span className={`avatar ${cls}`}>{initials}</span>;
   };
+
+  const handleDeleteConnection = async (connectionId: string) => {
+    setIsDeletingId(connectionId);
+    try {
+      await connectionApi.delete(connectionId);
+      setConnections(prev => prev.filter(c => c.id !== connectionId));
+      setConfirmDeleteId(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete connection');
+    } finally {
+      setIsDeletingId(null);
+    }
+  };
+
+  // Sort + filter connections
+  const sortedConnections = useMemo(() => {
+    const q = (searchParams.get('q') ?? '').trim().toLowerCase();
+    const filtered = q
+      ? connections.filter(c =>
+          (c.theirLabel || c.label || '').toLowerCase().includes(q) ||
+          c.id.toLowerCase().includes(q)
+        )
+      : connections;
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (connSort.key === 'createdAt') {
+        cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      } else if (connSort.key === 'label') {
+        cmp = (a.theirLabel || a.label || '').toLowerCase().localeCompare((b.theirLabel || b.label || '').toLowerCase());
+      } else if (connSort.key === 'state') {
+        cmp = connStateRank(a.state) - connStateRank(b.state);
+      } else if (connSort.key === 'role') {
+        cmp = (a.role || '').localeCompare(b.role || '');
+      }
+      return connSort.dir === 'asc' ? cmp : -cmp;
+    });
+  }, [connections, connSort, searchParams]);
 
   // Compute stats
   const totalConns = connections.length;
@@ -625,7 +700,7 @@ export default function ConnectionsPage() {
 
       {/* Accept Invitation Form */}
       {showAcceptForm && (
-        <div className="card border-l-4 border-primary-500">
+        <div className="card card-pad border-l-4 border-primary-500">
           <h3 className="text-xl font-semibold text-text-primary mb-4">Accept an Invitation</h3>
           <form onSubmit={handleAcceptInvitation}>
             <div className="mb-4">
@@ -692,7 +767,7 @@ export default function ConnectionsPage() {
 
       {/* Display invitation when created */}
       {showInvitation && invitation && (
-        <div className="card border-l-4 border-primary-500">
+        <div className="card card-pad border-l-4 border-primary-500">
           <div className="flex justify-between items-start">
             <h3 className="text-xl font-semibold text-text-primary mb-2">Invitation Created</h3>
             <button
@@ -748,7 +823,7 @@ export default function ConnectionsPage() {
       {/* QR Code Modal for Connection */}
       {showQrModal && selectedConnectionId && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center" style={{ zIndex: 9999 }}>
-          <div className="modal-container max-w-md w-full mx-4">
+          <div className="modal-container max-w-md w-full mx-4 p-4">
             <div className="flex justify-between items-start mb-4">
               <h3 className="text-xl font-semibold text-text-primary">Connection QR Code</h3>
               <button
@@ -812,90 +887,92 @@ export default function ConnectionsPage() {
       {showMessageModal && selectedConnection && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-2" style={{ zIndex: 9999 }}>
           <div className="modal-container max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-xl font-semibold text-text-primary">
+            <div className="modal-header">
+              <h3 className="modal-title">
                 Messages with {selectedConnection.theirLabel || 'Connection'}
               </h3>
               <button
                 onClick={() => setShowMessageModal(false)}
-                className="text-text-secondary p-2 hover:text-text-primary transition-colors "
+                className="text-text-secondary p-2 hover:text-text-primary transition-colors"
               >
                 ✕
               </button>
             </div>
 
-            {selectedConnection.state !== 'completed' && selectedConnection.state !== 'complete' ? (
-              <div className="bg-yellow-50 p-4 rounded-md mb-4">
-                <p className="text-yellow-700">
-                  You can only exchange messages with completed connections. This connection is in state: {selectedConnection.state}
-                </p>
-              </div>
-            ) : (
-              <>
-
-
-                <div className="flex-1 overflow-y-auto mb-4 p-3 bg-surface-100 dark:bg-surface-800 rounded-md min-h-[300px]">
-                  {isLoadingMessages ? (
-                    <div className="flex justify-center items-center h-full">
-                      <p className="text-text-tertiary">Loading messages...</p>
-                    </div>
-                  ) : messages.length === 0 ? (
-                    <div className="flex justify-center items-center h-full">
-                      <p className="text-text-tertiary">No messages yet. Start the conversation!</p>
-                    </div>
-                  ) : (
-                    /* flex‑col allows self‑alignment for right / left bubbles */
-                    <div className="flex flex-col gap-3">
-                      {[...messages].sort(compareMessages).map((msg, idx) => {
-                        const iso = messageIso(msg);           // sentTime ▸ createdAt ▸ undefined
-                        const fromMe = msg.role === 'sender';  // shortcut
-                        return (
-                          <div
-                            /* key is ALWAYS unique — id + timestamp (or idx fallback) */
-                            key={`${msg.id}-${iso ?? idx}`}
-                            className={`flex ${fromMe ? 'justify-end' : 'justify-start'}`}
-                          >
-                            <div
-                              className={`max-w-[80%] rounded-lg p-3 break-words ${fromMe
-                                  ? 'bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-300'
-                                  : 'bg-surface-100 text-text-secondary dark:bg-surface-700 dark:text-text-secondary'
-                                }`}
-                            >
-                              <p>{msg.content}</p>
-                              {iso && (
-                                <p className="text-xs mt-1 opacity-70 text-right">
-                                  {formatMessageDate(iso)}
-                                  {/* {fromMe ? ' (You)' : ''} */}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+            <div className="px-6 pb-6 pt-4 flex flex-col flex-1 overflow-hidden">
+              {selectedConnection.state !== 'completed' && selectedConnection.state !== 'complete' ? (
+                <div className="alert alert-warning mb-4">
+                  <p>
+                    You can only exchange messages with completed connections. This connection is in state: {selectedConnection.state}
+                  </p>
                 </div>
+              ) : (
+                <>
 
 
-                <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
-                  <input
-                    type="text"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="Type your message here..."
-                    className="flex-1 text-black p-3 border border-border-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    disabled={isSendingMessage}
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-3 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:bg-primary-300"
-                    disabled={isSendingMessage || !newMessage.trim()}
-                  >
-                    {isSendingMessage ? 'Sending...' : 'Send'}
-                  </button>
-                </form>
-              </>
-            )}
+                  <div className="flex-1 overflow-y-auto mb-4 p-3 bg-surface-100 rounded-md min-h-[300px]">
+                    {isLoadingMessages ? (
+                      <div className="flex justify-center items-center h-full">
+                        <p className="text-text-tertiary">Loading messages...</p>
+                      </div>
+                    ) : messages.length === 0 ? (
+                      <div className="flex justify-center items-center h-full">
+                        <p className="text-text-tertiary">No messages yet. Start the conversation!</p>
+                      </div>
+                    ) : (
+                      /* flex‑col allows self‑alignment for right / left bubbles */
+                      <div className="flex flex-col gap-3">
+                        {[...messages].sort(compareMessages).map((msg, idx) => {
+                          const iso = messageIso(msg);           // sentTime ▸ createdAt ▸ undefined
+                          const fromMe = msg.role === 'sender';  // shortcut
+                          return (
+                            <div
+                              /* key is ALWAYS unique — id + timestamp (or idx fallback) */
+                              key={`${msg.id}-${iso ?? idx}`}
+                              className={`flex ${fromMe ? 'justify-end' : 'justify-start'}`}
+                            >
+                              <div
+                                className={`max-w-[80%] rounded-lg p-3 break-words ${fromMe
+                                  ? 'bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-300'
+                                  : 'bg-surface-200 text-text-secondary'
+                                  }`}
+                              >
+                                <p>{msg.content}</p>
+                                {iso && (
+                                  <p className="text-xs mt-1 opacity-70 text-right">
+                                    {formatMessageDate(iso)}
+                                    {/* {fromMe ? ' (You)' : ''} */}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+
+                  <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      placeholder="Type your message here..."
+                      className="flex-1 text-text-primary p-3 border border-border-secondary rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      disabled={isSendingMessage}
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-3 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:bg-primary-300"
+                      disabled={isSendingMessage || !newMessage.trim()}
+                    >
+                      {isSendingMessage ? 'Sending...' : 'Send'}
+                    </button>
+                  </form>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -914,20 +991,29 @@ export default function ConnectionsPage() {
           </div>
         </div>
       ) : (
+        <>
         <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
-                <th style={{ width: '30%' }}>ID / Label</th>
-                <th>State</th>
+                <th style={{ width: '30%', cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleConnSort('label')}>
+                  ID / Label{connSortArrow('label')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleConnSort('state')}>
+                  State{connSortArrow('state')}
+                </th>
                 <th>Encryption</th>
-                <th>Role</th>
-                <th>Created</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleConnSort('role')}>
+                  Role{connSortArrow('role')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleConnSort('createdAt')}>
+                  Created{connSortArrow('createdAt')}
+                </th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {connections.map((connection, idx) => {
+              {sortedConnections.map((connection, idx) => {
                 const label = connection.theirLabel || connection.label || 'Unknown';
                 const status = kemStatuses[connection.id];
                 const isComplete = connection.state === 'completed' || connection.state === 'complete';
@@ -951,10 +1037,10 @@ export default function ConnectionsPage() {
                     <td>
                       {isComplete ? (
                         !status ? <span className="muted" style={{ fontSize: 12 }}>Loading...</span> :
-                        status.ready ? <span className="badge violet"><Icon name="lock" size={11} style={{ marginRight: 3 }} /> KEM-Active</span> :
-                        status.hasPendingRequest ? <span className="badge amber"><span className="badge-dot" /> Pending Request</span> :
-                        status.hasLocalKey ? <span className="badge amber"><span className="badge-dot" /> Awaiting Peer</span> :
-                        <span className="muted" style={{ fontSize: 12 }}>—</span>
+                          status.ready ? <span className="badge violet"><Icon name="lock" size={11} style={{ marginRight: 3 }} /> KEM-Active</span> :
+                            status.hasPendingRequest ? <span className="badge amber"><span className="badge-dot" /> Pending Request</span> :
+                              status.hasLocalKey ? <span className="badge amber"><span className="badge-dot" /> Awaiting Peer</span> :
+                                <span className="muted" style={{ fontSize: 12 }}>—</span>
                       ) : (
                         <span className="muted" style={{ fontSize: 12 }}>—</span>
                       )}
@@ -962,7 +1048,7 @@ export default function ConnectionsPage() {
                     <td style={{ textTransform: 'capitalize' }}>{connection.role}</td>
                     <td><span className="mono-dim">{new Date(connection.createdAt).toLocaleDateString()}</span></td>
                     <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', alignItems: 'center' }}>
                         {connection.state === 'await-response' && connection.url && (
                           <button onClick={() => showQrCodeForConnection(connection)} className="btn btn-secondary btn-xs">Show QR</button>
                         )}
@@ -981,6 +1067,28 @@ export default function ConnectionsPage() {
                           </button>
                         )}
                         <button onClick={() => openMessageModal(connection)} className="btn btn-secondary btn-xs">Messages</button>
+                        {confirmDeleteId === connection.id ? (
+                          <>
+                            <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>Remove?</span>
+                            <button
+                              onClick={() => handleDeleteConnection(connection.id)}
+                              disabled={isDeletingId === connection.id}
+                              className="btn btn-xs"
+                              style={{ background: 'var(--red, #ef4444)', color: 'white', border: 'none' }}
+                            >
+                              {isDeletingId === connection.id ? '…' : 'Yes'}
+                            </button>
+                            <button onClick={() => setConfirmDeleteId(null)} className="btn btn-secondary btn-xs">No</button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(connection.id)}
+                            className="btn btn-ghost btn-icon btn-sm"
+                            title="Remove connection"
+                          >
+                            <Icon name="trash" size={13} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -989,6 +1097,7 @@ export default function ConnectionsPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
