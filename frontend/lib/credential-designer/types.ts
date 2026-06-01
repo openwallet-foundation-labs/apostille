@@ -67,6 +67,7 @@ export interface OCAMeta {
   issuer?: string;
   issuer_url?: string;
   issuer_description?: string;
+  category?: 'education' | 'professional' | 'membership' | 'government' | 'healthcare' | 'custom';
 }
 
 export interface OCAOverlay {

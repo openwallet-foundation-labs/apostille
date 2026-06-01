@@ -249,24 +249,33 @@ export function generateSvgTemplateFromCraftState(
 
     if (typeName === 'TextNode') {
       const props = node.props as unknown as TextNodeProps;
-      const rawText =
-        props.isMetaField && props.metaKey
-          ? `{{meta.${props.metaKey}}}`
-          : props.text || '';
-      const text = escapeXml(transformText(rawText, props.textTransform));
+      const isMetaPlaceholder = !!(props.isMetaField && props.metaKey);
+      const rawText = isMetaPlaceholder
+        ? `{{meta.${props.metaKey}}}`
+        : props.text || '';
+      const displayText = isMetaPlaceholder ? rawText : transformText(rawText, props.textTransform);
+      const text = escapeXml(displayText);
+      const styleAttr =
+        isMetaPlaceholder && props.textTransform && props.textTransform !== 'none'
+          ? ` style="text-transform: ${props.textTransform}"`
+          : '';
       const x = props.x ?? 0;
       const y = props.y ?? 0;
       const fontWeight =
         props.fontWeight === 'medium' ? 500 : props.fontWeight === 'semibold' ? 600 : props.fontWeight;
       const textAnchor =
         props.textAlign === 'center' ? 'middle' : props.textAlign === 'right' ? 'end' : 'start';
+      // When no explicit width, centered text falls back to the card center (width/2)
+      // so text-anchor="middle" aligns correctly even without a node width
       const anchorX =
-        props.textAlign === 'center' && props.width ? x + props.width / 2
-          : props.textAlign === 'right' && props.width ? x + props.width
+        props.textAlign === 'center'
+          ? (props.width != null ? x + props.width / 2 : width / 2)
+          : props.textAlign === 'right' && props.width != null
+          ? x + props.width
           : x;
 
       elements.push(
-        `<text x="${anchorX}" y="${y}" fill="${props.color}" font-size="${props.fontSize}" font-family="${escapeXml(props.fontFamily)}" font-weight="${fontWeight}" text-anchor="${textAnchor}" dominant-baseline="text-before-edge" letter-spacing="${props.letterSpacing || 0}">${text}</text>`
+        `<text x="${anchorX}" y="${y}" fill="${props.color}" font-size="${props.fontSize}" font-family="${escapeXml(props.fontFamily)}" font-weight="${fontWeight}" text-anchor="${textAnchor}" dominant-baseline="text-before-edge" letter-spacing="${props.letterSpacing || 0}"${styleAttr}>${text}</text>`
       );
       continue;
     }

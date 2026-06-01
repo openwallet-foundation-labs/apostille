@@ -3,6 +3,18 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useEditor } from '@craftjs/core';
+
+const OCA_ROLES = ['primary', 'secondary', 'tertiary', 'quaternary', 'quinary'] as const;
+type OcaRole = typeof OCA_ROLES[number] | 'regular';
+
+const OCA_ROLE_LABELS: Record<OcaRole, string> = {
+  primary: '1st',
+  secondary: '2nd',
+  tertiary: '3rd',
+  quaternary: '4th',
+  quinary: '5th',
+  regular: '',
+};
 import { useDesignerStore } from '@/lib/credential-designer/store';
 import { credentialDesignerApi } from '@/lib/credential-designer/api';
 import { schemaApi } from '@/lib/api';
@@ -10,7 +22,7 @@ import { TextNode, ImageNode, AttributeNode } from './nodes';
 import { PresetTemplate } from '@/lib/credential-designer/types';
 
 export default function DesignerSidebar() {
-  const { connectors } = useEditor();
+  const { connectors, actions, query } = useEditor();
 
   // Use individual selectors to prevent unnecessary re-renders
   const sidebarTab = useDesignerStore((state) => state.sidebarTab);
@@ -237,10 +249,50 @@ export default function DesignerSidebar() {
                   return;
                 }
                 const selected = schemas.find((s) => (s.schemaId || s.id) === nextSchemaId);
-                if (selected?.attrNames?.length) {
-                  setAvailableAttributes(selected.attrNames);
-                } else {
-                  setAvailableAttributes([]);
+                const newAttrs = selected?.attrNames?.length ? selected.attrNames : [];
+                setAvailableAttributes(newAttrs);
+
+                // Sync attribute nodes on the canvas to match the new schema exactly
+                try {
+                  const nodes = query.getSerializedNodes();
+                  const attrNodes = Object.entries(nodes)
+                    .filter(([id, node]: any) => id !== 'ROOT' && node.type?.resolvedName === 'AttributeNode')
+                    .sort(([, a]: any, [, b]: any) => (a.props.y ?? 0) - (b.props.y ?? 0));
+
+                  // Update matching nodes; delete extras beyond the schema's count
+                  attrNodes.forEach(([nodeId], i) => {
+                    if (i < newAttrs.length) {
+                      actions.setProp(nodeId, (props: any) => {
+                        props.attributeName = newAttrs[i];
+                        props.role = OCA_ROLES[i] ?? 'regular';
+                      });
+                    } else {
+                      actions.delete(nodeId);
+                    }
+                  });
+
+                  // Add new nodes for schema attributes that have no canvas node yet
+                  const existingCount = attrNodes.length;
+                  if (newAttrs.length > existingCount) {
+                    const baseY = existingCount > 0
+                      ? ((attrNodes[existingCount - 1][1] as any).props.y ?? 0) + 25
+                      : 80;
+                    newAttrs.slice(existingCount).forEach((attr, j) => {
+                      const i = existingCount + j;
+                      const nodeTree = query.parseReactElement(
+                        React.createElement(AttributeNode, {
+                          attributeName: attr,
+                          role: OCA_ROLES[i] ?? 'regular',
+                          fontSize: 14,
+                          x: 20,
+                          y: baseY + j * 25,
+                        })
+                      ).toNodeTree();
+                      actions.addNodeTree(nodeTree, 'ROOT');
+                    });
+                  }
+                } catch (_e) {
+                  // editor not ready — no-op
                 }
               }}
               className="w-full px-3 py-2 bg-surface-200 border border-border-primary rounded text-text-primary text-xs"
@@ -279,7 +331,7 @@ export default function DesignerSidebar() {
 
         {/* Hint */}
         <p className="mt-2 text-xs text-text-tertiary">
-          Drag attributes onto the card. Each attribute can be placed multiple times.
+          Drag onto the card. Order determines OCA role (1st = primary, 2nd = secondary…). Override in the properties panel.
         </p>
       </div>
     </div>
@@ -399,14 +451,16 @@ function DraggableAttribute({
   const elementRef = useRef<HTMLDivElement>(null);
   const registeredRef = useRef(false);
 
+  const role: OcaRole = (OCA_ROLES[index] as OcaRole | undefined) ?? 'regular';
+
   // Register drag source once when mounted
   useEffect(() => {
     if (elementRef.current && !registeredRef.current) {
-      const element = <AttributeNode attributeName={attr} role="regular" fontSize={14} x={20} y={20 + (index * 25)} />;
+      const element = <AttributeNode attributeName={attr} role={role} fontSize={14} x={20} y={20 + (index * 25)} />;
       connectors.create(elementRef.current, element);
       registeredRef.current = true;
     }
-  }, [attr, index, connectors]);
+  }, [attr, index, role, connectors]);
 
   // Re-register if connectors change
   useEffect(() => {
@@ -425,6 +479,11 @@ function DraggableAttribute({
         </svg>
         <span className="text-sm text-text-primary">{attr}</span>
       </div>
+      {role !== 'regular' && (
+        <span className="text-xs text-text-tertiary font-medium opacity-60 group-hover:opacity-100 transition-opacity">
+          {OCA_ROLE_LABELS[role]}
+        </span>
+      )}
     </div>
   );
 }

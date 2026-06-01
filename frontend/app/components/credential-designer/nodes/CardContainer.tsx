@@ -287,13 +287,19 @@ function CardContainerSettings() {
           <input
             type="color"
             value={backgroundColor}
-            onChange={(e) => setProp((props: CardContainerProps) => (props.backgroundColor = e.target.value))}
+            onChange={(e) => setProp((props: CardContainerProps) => {
+              props.backgroundColor = e.target.value;
+              if (props.backgroundGradient) props.backgroundGradient.colors[0] = e.target.value;
+            })}
             className="w-10 h-10 rounded cursor-pointer"
           />
           <input
             type="text"
             value={backgroundColor}
-            onChange={(e) => setProp((props: CardContainerProps) => (props.backgroundColor = e.target.value))}
+            onChange={(e) => setProp((props: CardContainerProps) => {
+              props.backgroundColor = e.target.value;
+              if (props.backgroundGradient) props.backgroundGradient.colors[0] = e.target.value;
+            })}
             className="flex-1 px-3 py-2 bg-surface-200 border border-border-primary rounded text-text-primary text-sm"
           />
         </div>

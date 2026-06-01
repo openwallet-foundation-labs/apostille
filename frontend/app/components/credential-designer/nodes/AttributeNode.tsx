@@ -247,19 +247,19 @@ function AttributeNodeSettings() {
 
       <div>
         <label className="block text-sm font-medium text-text-secondary mb-1">
-          Role (for OCA export)
+          OCA Role <span className="text-xs font-normal text-text-tertiary">(auto-assigned by schema order)</span>
         </label>
         <select
           value={role}
           onChange={(e) => setProp((props: AttributeNodeProps) => (props.role = e.target.value as AttributeNodeProps['role']))}
           className="w-full px-3 py-2 bg-surface-200 border border-border-primary rounded text-text-primary text-sm"
         >
-          <option value="regular">Regular</option>
-          <option value="primary">Primary (maps to OCA primary_attribute)</option>
-          <option value="secondary">Secondary (maps to OCA secondary_attribute)</option>
-          <option value="tertiary">Tertiary (maps to OCA tertiary_attribute)</option>
-          <option value="quaternary">Quaternary (maps to OCA quaternary_attribute)</option>
-          <option value="quinary">Quinary (maps to OCA quinary_attribute)</option>
+          <option value="regular">Regular (not mapped)</option>
+          <option value="primary">Primary</option>
+          <option value="secondary">Secondary</option>
+          <option value="tertiary">Tertiary</option>
+          <option value="quaternary">Quaternary</option>
+          <option value="quinary">Quinary</option>
         </select>
       </div>
 

@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { credentialDesignerApi } from '@/lib/credential-designer/api';
 import { CardTemplate, PresetTemplate, TEMPLATE_CATEGORIES } from '@/lib/credential-designer/types';
 
 export default function CredentialDesignerPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [templates, setTemplates] = useState<CardTemplate[]>([]);
   const [presets, setPresets] = useState<PresetTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,6 +19,12 @@ export default function CredentialDesignerPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  const q = (searchParams.get('q') ?? '').trim().toLowerCase();
+  const filteredTemplates = useMemo(
+    () => q ? templates.filter(t => t.name.toLowerCase().includes(q)) : templates,
+    [templates, q]
+  );
 
   const loadData = async () => {
     try {
@@ -111,7 +118,7 @@ export default function CredentialDesignerPage() {
       </div>
 
       {/* Templates grid */}
-      {templates.length === 0 ? (
+      {filteredTemplates.length === 0 ? (
         <div className="empty">
           <div className="empty-icon">
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="22" height="22">
@@ -126,7 +133,7 @@ export default function CredentialDesignerPage() {
         </div>
       ) : (
         <div className="grid-3">
-          {templates.map((template) => (
+          {filteredTemplates.map((template) => (
             <div
               key={template.id}
               style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: 'var(--bg-elev)', transition: 'border-color 0.15s', cursor: 'pointer' }}
