@@ -121,6 +121,65 @@ const sendOwnerAckToSigner = async (
   }
 };
 
+// In-memory dedup: prevent concurrent duplicate vault creation for the same session
+const inFlightVaultCreations = new Set<string>();
+
+/**
+ * Auto-create an encrypted vault for a wallet-originated signing session.
+ * This makes the PDF appear in the Vaults section so the user can access it normally.
+ * The vault metadata carries isSessionBased + sessionId so the frontend still routes
+ * getSessionPdf / signSession calls through the session protocol instead of the vault
+ * download/upload paths.
+ */
+const autoCreateVaultForSession = async (
+  agent: any,
+  session: any,
+  payload: { pdfBase64: string; fields?: any[]; title?: string }
+): Promise<void> => {
+  const vaultRepo = agent.context?.dependencyManager?.resolve?.(VaultRepository);
+  const encryptionService = agent.context?.dependencyManager?.resolve?.(VaultEncryptionService);
+  if (!vaultRepo || !encryptionService) return;
+
+  // Get or generate a local KEM keypair so we can decrypt the vault ourselves
+  let keypair = await agent.modules.vaults.getLocalKeypair(session.connectionId);
+  if (!keypair) {
+    keypair = agent.modules.vaults.generateKemKeypair();
+    await agent.modules.vaults.storeLocalKeypair(session.connectionId, keypair);
+  }
+
+  const pdfBytes = new Uint8Array(Buffer.from(payload.pdfBase64, 'base64'));
+  const docId = generateUuid();
+  const vaultId = generateUuid();
+
+  const vault = await encryptionService.encryptAnyOf(
+    pdfBytes,
+    [{ kid: keypair.kid, publicKey: keypair.publicKey }],
+    { docId, vaultId }
+  );
+
+  vault.header.metadata = {
+    filename: payload.title || session.object?.displayHints?.title || 'Signing Request',
+    description: session.object?.displayHints?.summary,
+    mimeType: 'application/pdf',
+    isSessionBased: true,
+    sessionId: session.id,
+    receivedFrom: session.connectionId,
+    signerConnectionId: session.connectionId,
+    createdAt: new Date().toISOString(),
+    ...(payload.fields?.length ? { signingFields: payload.fields } : {}),
+  };
+
+  const record = new VaultRecord({
+    vaultId,
+    docId,
+    header: vault.header,
+    ciphertext: toBase64Url(vault.ciphertext),
+    ownerDid: agent.context?.contextCorrelationId,
+  });
+  await vaultRepo.save(agent.context, record);
+  console.log(`[PDF-Signing] Auto-created vault ${vaultId} for session ${session.id}`);
+};
+
 const sendPdfSigningNotice = async (
   agent: any,
   connectionId: string,
@@ -285,13 +344,21 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       // Create a signing session using the DIDComm Signing Protocol
       let signingSessionId: string | undefined;
       try {
+        // Embed the PDF + fields in previewLinks so ESSI (wallet) can decode the
+        // signing request payload without needing vault access (mirrors vaultBridge.requestSigning).
+        const requestPayloadB64 = Buffer.from(
+          JSON.stringify({ pdfBase64: Buffer.from(pdfBytes).toString('base64'), fields: signingFields, title: file.originalname })
+        ).toString('base64');
+        const previewLink = `data:application/json;base64,${requestPayloadB64}`;
+
         const sessionConfig: any = {
           object: {
             id: result.vaultId,
             mediaType: 'application/pdf',
             canonicalization: { method: 'raw-bytes@1', parameters: {} },
             digest: { alg: 'sha-256', value: pdfDigest },
-            displayHints: { title: file.originalname }
+            displayHints: { title: file.originalname, previewLinks: [previewLink] },
+            previewLinks: [previewLink],
           },
           suite: {
             suite: 'pades-b-lta@1',
@@ -1122,6 +1189,64 @@ router.get('/status', async (req: Request, res: Response) => {
       if (meta?.isSigned) return false;
       return true;
     });
+    // Include wallet-originated signing sessions that have no corresponding vault.
+    // Auto-create an encrypted vault for each new session so it appears in the
+    // Vaults section too. Until the vault is persisted (first-load async), we
+    // inject a synthetic toSign entry so the UI shows it immediately.
+    try {
+      // Sessions already backed by a real vault (keyed by sessionId metadata)
+      const vaultedSessionIds = new Set(
+        pdfVaults
+          .filter((v: any) => v.header?.metadata?.sessionId)
+          .map((v: any) => v.header.metadata.sessionId as string)
+      );
+      const vaultObjectIds = new Set(pdfVaults.map((v: any) => v.vaultId));
+      const allSessions = await agent.modules.signing.getAll();
+      for (const session of allSessions) {
+        if (session.role !== 'signer') continue;
+        if (!['request-received', 'consent-sent'].includes(session.state)) continue;
+        if (session.object?.id && vaultObjectIds.has(session.object.id)) continue;
+        const payload = decodeSessionPayload(session.object);
+        if (!payload?.pdfBase64) continue; // skip sessions with no embedded PDF
+
+        // Already has a vault — it will appear via the normal vault path; skip synthetic entry
+        if (vaultedSessionIds.has(session.id)) continue;
+
+        // Kick off background vault creation (deduped by inFlightVaultCreations)
+        if (!inFlightVaultCreations.has(session.id)) {
+          inFlightVaultCreations.add(session.id);
+          autoCreateVaultForSession(agent, session, payload)
+            .then(() => inFlightVaultCreations.delete(session.id))
+            .catch((err: any) => {
+              inFlightVaultCreations.delete(session.id);
+              console.warn('[PDF-Signing] Auto-create vault failed:', err?.message || err);
+            });
+        }
+
+        // Synthetic entry: shown on this response; replaced by real vault on next refresh
+        const fields = payload.fields || [];
+        toSign.push({
+          vaultId: session.id,
+          header: {
+            metadata: {
+              filename: session.object?.displayHints?.title || 'Signing Request',
+              description: session.object?.displayHints?.summary,
+              mimeType: 'application/pdf',
+              role: 'signer',
+              createdAt: session.createdAt?.toISOString?.() || new Date().toISOString(),
+              isSessionBased: true,
+              sessionId: session.id,
+              signerConnectionId: session.connectionId,
+              ...(fields.length > 0 ? { signingFields: fields } : {}),
+            },
+          },
+          createdAt: session.createdAt,
+        });
+      }
+    } catch (err: any) {
+      console.warn('[PDF-Signing] Could not include session-based requests in toSign:', err.message);
+    }
+
     const signedToReturn = receivedVaults.filter((v: any) => {
       const meta = v.header?.metadata;
       const sessionState = getSessionSigningState(v.vaultId);
@@ -1173,36 +1298,40 @@ router.get('/status', async (req: Request, res: Response) => {
 
       return {
         vaultId: v.vaultId,
-        filename: meta?.filename,
-        description: meta?.description,
-        role: meta?.role || detectedRole,
-        status: meta?.status,
-        signerConnectionId: meta?.signerConnectionId,
-        ownerConnectionId: meta?.ownerConnectionId,
-        allowSignerCopy: meta?.allowSignerCopy,
-        isSigned: sessionState === 'signed' || meta?.isSigned,
-        signedAt: meta?.signedAt,
-        sharedAt: meta?.sharedAt,
+        filename: meta?.filename || v.filename,
+        description: meta?.description || v.description,
+        role: meta?.role || v.role || detectedRole,
+        status: meta?.status || v.status,
+        signerConnectionId: meta?.signerConnectionId || v.signerConnectionId,
+        ownerConnectionId: meta?.ownerConnectionId || v.ownerConnectionId,
+        allowSignerCopy: meta?.allowSignerCopy ?? v.allowSignerCopy,
+        isSigned: sessionState === 'signed' || meta?.isSigned || v.isSigned,
+        signedAt: meta?.signedAt || v.signedAt,
+        sharedAt: meta?.sharedAt || v.sharedAt,
         returnedAt:
           meta?.returnedAt ||
-          (meta?.role === 'signer' ? meta?.receivedAt : undefined),
-        downloadedAt: meta?.downloadedAt,
-        verifiedAt: meta?.verifiedAt,
-        verificationValid: meta?.verificationValid,
-        ownerAckAt: meta?.ownerAckAt,
-        ownerAckAction: meta?.ownerAckAction,
-        signerLocalCopy: meta?.signerLocalCopy,
+          (meta?.role === 'signer' ? meta?.receivedAt : undefined) ||
+          v.returnedAt,
+        downloadedAt: meta?.downloadedAt || v.downloadedAt,
+        verifiedAt: meta?.verifiedAt || v.verifiedAt,
+        verificationValid: meta?.verificationValid ?? v.verificationValid,
+        ownerAckAt: meta?.ownerAckAt || v.ownerAckAt,
+        ownerAckAction: meta?.ownerAckAction || v.ownerAckAction,
+        signerLocalCopy: meta?.signerLocalCopy ?? v.signerLocalCopy,
         createdAt: meta?.createdAt || v.createdAt,
-        signingFields: meta?.signingFields,
+        signingFields: meta?.signingFields || v.signingFields,
         // Session info for debugging/UI
         sessionState: session?.state,
         sessionRole: session?.role,
         // Multi-recipient fields
         signingGroupId: groupId,
-        threshold: meta?.threshold,
-        totalSigners: meta?.totalSigners,
-        signerIndex: meta?.signerIndex,
+        threshold: meta?.threshold || v.threshold,
+        totalSigners: meta?.totalSigners || v.totalSigners,
+        signerIndex: meta?.signerIndex ?? v.signerIndex,
         signingProgress: groupProgress,
+        // Session-based (wallet-originated, no vault)
+        isSessionBased: meta?.isSessionBased || v.isSessionBased || false,
+        sessionId: meta?.sessionId || v.sessionId,
       };
     };
 
@@ -1238,6 +1367,153 @@ router.get('/status', async (req: Request, res: Response) => {
       error: 'Failed to get PDF signing status',
       message: error.message,
     });
+  }
+});
+
+/**
+ * Decode the PDF + fields payload embedded in a signing session's previewLinks.
+ * The wallet encodes: data:application/json;base64,<base64 JSON with pdfBase64 + fields>
+ */
+function decodeSessionPayload(object: any): { pdfBase64: string; fields?: any[]; title?: string } | null {
+  try {
+    const link: string | undefined = object?.previewLinks?.[0] ?? object?.displayHints?.previewLinks?.[0];
+    if (!link || !link.startsWith('data:application/json;base64,')) return null;
+    const json = Buffer.from(link.slice('data:application/json;base64,'.length), 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Serve the PDF embedded in a wallet-originated signing session.
+ * GET /api/pdf-signing/session/:sessionId/pdf
+ */
+router.get('/session/:sessionId/pdf', async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = (req as any).user;
+    const { sessionId } = req.params;
+    const agent = await getAgent({ tenantId });
+
+    let session: any = null;
+    try { session = await agent.modules.signing.getById(sessionId); } catch {}
+    if (!session) {
+      const all = await agent.modules.signing.getAll();
+      session = all.find((s: any) => s.sessionId === sessionId || s.id === sessionId);
+    }
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    const payload = decodeSessionPayload(session.object);
+    if (!payload?.pdfBase64) {
+      return res.status(400).json({ error: 'No embedded PDF found in this session' });
+    }
+
+    const pdfBytes = Buffer.from(payload.pdfBase64, 'base64');
+    const filename = session.object?.displayHints?.title || 'document.pdf';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(pdfBytes);
+  } catch (error: any) {
+    console.error('Error serving session PDF:', error);
+    res.status(500).json({ error: 'Failed to serve session PDF', message: error.message });
+  }
+});
+
+/**
+ * Sign a wallet-originated session and return the signed PDF via vault sharing.
+ * POST /api/pdf-signing/session/:sessionId/sign
+ * Body: multipart/form-data with 'file' (signed PDF), optional 'signerName'
+ */
+router.post('/session/:sessionId/sign', upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = (req as any).user;
+    const { sessionId } = req.params;
+    const { signerName } = req.body;
+    const file = req.file;
+
+    if (!file) return res.status(400).json({ error: 'Signed PDF file is required' });
+
+    const agent = await getAgent({ tenantId });
+
+    let session: any = null;
+    try { session = await agent.modules.signing.getById(sessionId); } catch {}
+    if (!session) {
+      const all = await agent.modules.signing.getAll();
+      session = all.find((s: any) => s.sessionId === sessionId || s.id === sessionId);
+    }
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    const signedPdfBytes = new Uint8Array(file.buffer);
+    const ownerConnectionId = session.connectionId;
+
+    // Find the auto-created vault for this session (keyed by sessionId = session.id).
+    // Its vaultId is used as originalVaultId so the status endpoint can filter it
+    // out of the "toSign" list via the signedOriginalIds check.
+    let autoCreatedVaultId: string | undefined;
+    try {
+      const allVaults = await agent.modules.vaults.list();
+      const autoCreatedVault = allVaults.find(
+        (v: any) => v.header?.metadata?.sessionId === session.id
+      );
+      autoCreatedVaultId = autoCreatedVault?.vaultId;
+    } catch {}
+
+    // Retrieve original vault metadata if available
+    const vaultId = session.object?.id;
+    let originalMetadata: Record<string, any> = {};
+    if (vaultId) {
+      try {
+        const vaultInfo = await agent.modules.vaults.getInfo(vaultId);
+        if (vaultInfo?.header?.metadata) {
+          const { receivedFrom, receivedAt, lastReceivedFrom, lastReceivedAt, ...meta } =
+            vaultInfo.header.metadata as Record<string, any>;
+          originalMetadata = meta;
+        }
+      } catch {}
+    }
+
+    // Create a signed vault and share it back to the owner via the vault protocol.
+    // Using vault sharing (same as upload-signed) avoids the DIDComm signing protocol's
+    // threshold check, which would fail because no cryptographic partial-signature was
+    // registered via signing.sign() before this call.
+    const signedVault = await agent.modules.vaults.createSigningVault({
+      document: signedPdfBytes,
+      signerConnectionId: ownerConnectionId,
+      documentType: 'pdf',
+      metadata: {
+        ...originalMetadata,
+        filename: session.object?.displayHints?.title || originalMetadata?.filename || 'signed-document.pdf',
+        // Use the auto-created vault's vaultId so the status endpoint filters it from toSign
+        originalVaultId: autoCreatedVaultId || vaultId || session.id,
+        signedAt: new Date().toISOString(),
+        signerName: signerName || 'Unknown',
+        isSigned: true,
+        returnedAt: new Date().toISOString(),
+        role: 'signer',
+        signedClientSide: true,
+      },
+    });
+
+    console.log(`[PDF-Signing] Created signed vault ${signedVault.vaultId} for session ${session.id}`);
+
+    try {
+      await agent.modules.vaults.shareSigningVault(signedVault.vaultId, ownerConnectionId);
+      console.log(`[PDF-Signing] Shared signed vault ${signedVault.vaultId} back to owner via connection ${ownerConnectionId}`);
+      await sendPdfSigningNotice(agent, ownerConnectionId, {
+        type: 'pdf-signing-signed-returned',
+        originalVaultId: autoCreatedVaultId || vaultId || session.id,
+        signedVaultId: signedVault.vaultId,
+        at: new Date().toISOString(),
+      });
+    } catch (shareError: any) {
+      console.error(`[PDF-Signing] Failed to share signed vault back to owner:`, shareError.message);
+    }
+
+    console.log(`[PDF-Signing] Returned signed artifact for session ${session.id} to owner`);
+    res.json({ success: true, sessionId: session.sessionId || session.id });
+  } catch (error: any) {
+    console.error('Error signing session-based request:', error);
+    res.status(500).json({ error: 'Failed to sign session', message: error.message });
   }
 });
 
