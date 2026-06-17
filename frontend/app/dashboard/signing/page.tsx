@@ -516,7 +516,7 @@ export default function SigningPage() {
                   className="input w-full"
                 >
                   <option value="">-- Select a connection --</option>
-                  {connections.map((conn) => (
+                  {[...connections].sort((a, b) => (a.theirLabel || '').localeCompare(b.theirLabel || '')).map((conn) => (
                     <option key={conn.id} value={conn.id}>
                       {conn.theirLabel || conn.id}
                     </option>

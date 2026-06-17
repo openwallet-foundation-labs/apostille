@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { didApi } from '../../../lib/api';
 import { Icon } from '../../components/ui/Icons';
@@ -22,7 +23,17 @@ export default function DIDsPage() {
   const [selectedMethod, setSelectedMethod] = useState<string>('');
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [createSuccess, setCreateSuccess] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const searchParams = useSearchParams();
+  type DidSortKey = 'did' | 'method' | 'state' | 'createdAt';
+  const [didSort, setDidSort] = useState<{ key: DidSortKey; dir: 'asc' | 'desc' }>({ key: 'createdAt', dir: 'desc' });
+
+  function toggleDidSort(key: DidSortKey) {
+    setDidSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+  function didSortArrow(key: DidSortKey) {
+    if (didSort.key !== key) return <span style={{ color: 'var(--ink-5)', marginLeft: 4 }}>↕</span>;
+    return <span style={{ marginLeft: 4 }}>{didSort.dir === 'asc' ? '↑' : '↓'}</span>;
+  }
 
   const availableMethods = [
     { value: 'kanon', label: 'Kanon (Besu)', description: 'Kanon DID on private Besu chain' },
@@ -84,9 +95,30 @@ export default function DIDsPage() {
     { method: 'key', label: 'did:key', count: methodCounts['key'] || 0 },
   ];
 
-  const filteredDids = dids.filter(d =>
-    !searchQuery || d.did.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const q = (searchParams.get('q') ?? '').trim().toLowerCase();
+  const filteredDids = [...dids]
+    .filter(d => {
+      const method = d.did.split(':')[1] || d.method || '';
+      if (!q) return true;
+      return d.did.toLowerCase().includes(q) || method.toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      if (didSort.key === 'createdAt') {
+        cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      } else if (didSort.key === 'did') {
+        cmp = a.did.localeCompare(b.did);
+      } else if (didSort.key === 'method') {
+        const mA = a.did.split(':')[1] || a.method || '';
+        const mB = b.did.split(':')[1] || b.method || '';
+        cmp = mA.localeCompare(mB);
+      } else if (didSort.key === 'state') {
+        const sA = a.state === 'finished' || !a.state ? 'active' : a.state;
+        const sB = b.state === 'finished' || !b.state ? 'active' : b.state;
+        cmp = sA.localeCompare(sB);
+      }
+      return didSort.dir === 'asc' ? cmp : -cmp;
+    });
 
   return (
     <div>
@@ -128,28 +160,21 @@ export default function DIDsPage() {
         <div className="empty"><div className="spinner" style={{ width: 32, height: 32 }} /></div>
       ) : dids.length > 0 ? (
         <div className="table-wrap">
-          <div className="table-toolbar">
-            <div className="search" style={{ flex: 1, maxWidth: 280, position: 'relative' }}>
-              <Icon name="search" size={13} className="absolute left-[10px] top-1/2 -translate-y-1/2" style={{ color: 'var(--ink-4)' }} />
-              <input
-                placeholder="Search DIDs..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  width: '100%', height: 30, padding: '0 12px 0 30px',
-                  background: 'var(--bg-sunk)', border: '1px solid transparent',
-                  borderRadius: 6, fontSize: '12.5px', outline: 'none', color: 'var(--ink)',
-                }}
-              />
-            </div>
-          </div>
           <table className="table">
             <thead>
               <tr>
-                <th>DID</th>
-                <th>Method</th>
-                <th>Status</th>
-                <th>Created</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleDidSort('did')}>
+                  DID{didSortArrow('did')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleDidSort('method')}>
+                  Method{didSortArrow('method')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleDidSort('state')}>
+                  Status{didSortArrow('state')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleDidSort('createdAt')}>
+                  Created{didSortArrow('createdAt')}
+                </th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>

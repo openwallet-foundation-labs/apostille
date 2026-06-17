@@ -610,7 +610,8 @@
   .alert {
     padding: 14px 16px;
     border-radius: var(--radius-lg);
-    border-left: 3px solid;
+    border: 1px solid;
+    box-shadow: none;
     display: flex;
     align-items: flex-start;
     gap: 10px;
@@ -618,22 +619,22 @@
   }
   .alert-success {
     background: var(--green-soft);
-    border-color: var(--green);
+    border-color: var(--green-border);
     color: var(--green-ink);
   }
   .alert-warning {
     background: var(--amber-soft);
-    border-color: var(--amber);
+    border-color: var(--amber-border);
     color: var(--amber-ink);
   }
   .alert-error {
     background: var(--red-soft);
-    border-color: var(--red);
+    border-color: var(--red-border);
     color: var(--red-ink);
   }
   .alert-info {
     background: var(--accent-soft);
-    border-color: var(--accent);
+    border-color: var(--accent-border);
     color: var(--accent-ink);
   }
 

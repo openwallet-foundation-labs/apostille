@@ -62,7 +62,7 @@ async function fetchWithErrorHandling(url: string, options: RequestInit = {}) {
     const data = await response.json();
     
     if (!response.ok) {
-      const err: any = new Error(data.message || 'An error occurred');
+      const err: any = new Error(data.message || data.error_description || data.error || 'An error occurred');
       err.code = data.code;
       err.data = data;
       err.status = response.status;
@@ -228,6 +228,12 @@ export const connectionApi = {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/connections/${connectionId}/accept-key-exchange`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+    });
+  },
+
+  delete: async (connectionId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/connections/${connectionId}`, {
+      method: 'DELETE',
     });
   },
 };
@@ -1163,6 +1169,40 @@ export const pdfSigningApi = {
    */
   getSessions: async () => {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/pdf-signing/sessions`);
+  },
+
+  getSessionPdf: async (sessionId: string) => {
+    const token = getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/api/pdf-signing/session/${sessionId}/pdf`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error((data as any).message || (data as any).error || 'Failed to get session PDF');
+    }
+    return response.blob();
+  },
+
+  signSession: async (sessionId: string, signedPdfBytes: Uint8Array, signerName?: string) => {
+    const formData = new FormData();
+    const arrayBuffer = signedPdfBytes.buffer.slice(
+      signedPdfBytes.byteOffset,
+      signedPdfBytes.byteOffset + signedPdfBytes.byteLength
+    ) as ArrayBuffer;
+    formData.append('file', new Blob([arrayBuffer], { type: 'application/pdf' }), 'signed.pdf');
+    if (signerName) formData.append('signerName', signerName);
+
+    const token = getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/api/pdf-signing/session/${sessionId}/sign`, {
+      method: 'POST',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      credentials: 'include',
+      body: formData,
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error((data as any).message || (data as any).error || 'Failed to sign session');
+    return data;
   },
 
   /**

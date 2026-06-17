@@ -35,106 +35,138 @@ const CATALOG: CatalogGroup[] = [
   {
     key: 'sd-jwt', label: 'SD-JWT', short: 'SD-JWT VC', icon: 'shield',
     items: [
-      { id: 'StudentID', name: 'Student ID', icon: 'scroll', tone: 'indigo',
+      {
+        id: 'StudentID', name: 'Student ID', icon: 'scroll', tone: 'indigo',
         issuer: 'Digital University', issue: 'University student identification card',
         verify: 'Prove university enrolment',
         cardSubtitle: 'Student no.', cardSubtitleKey: 'student_id',
-        attrs: [['given_name','Alice'],['family_name','Johnson'],['student_id','S1234567890'],['university','Digital University']] },
-      { id: 'ProfessionalLicense', name: 'Professional License', icon: 'fileCheck', tone: 'amber',
+        attrs: [['given_name', 'Alice'], ['family_name', 'Johnson'], ['student_id', 'S1234567890'], ['university', 'Digital University']]
+      },
+      {
+        id: 'ProfessionalLicense', name: 'Professional License', icon: 'fileCheck', tone: 'amber',
         issuer: 'State Bar Association', issue: 'State bar association lawyer license',
         verify: 'Prove active professional license',
         cardSubtitle: 'License no.', cardSubtitleKey: 'license_number',
-        attrs: [['given_name','Joyce'],['family_name','Smith'],['license_number','L-987654321'],['profession','Lawyer']] },
-      { id: 'EmployeeBadge', name: 'Employee Badge', icon: 'badge', tone: 'indigo',
+        attrs: [['given_name', 'Joyce'], ['family_name', 'Smith'], ['license_number', 'L-987654321'], ['profession', 'Lawyer']]
+      },
+      {
+        id: 'EmployeeBadge', name: 'Employee Badge', icon: 'badge', tone: 'indigo',
         issuer: 'Tech Corp', issue: 'Corporate employee identification',
         verify: 'Prove employer & active employment',
         cardSubtitle: 'Employee ID', cardSubtitleKey: 'employee_id',
-        attrs: [['given_name','Bob'],['family_name','Williams'],['employee_id','E-554433'],['department','Engineering']] },
-      { id: 'HealthInsurance', name: 'Health Insurance', icon: 'shieldCheck', tone: 'red',
+        attrs: [['given_name', 'Bob'], ['family_name', 'Williams'], ['employee_id', 'E-554433'], ['department', 'Engineering']]
+      },
+      {
+        id: 'HealthInsurance', name: 'Health Insurance', icon: 'shieldCheck', tone: 'red',
         issuer: 'Global Care Provider', issue: 'Global care provider member card',
         verify: 'Prove active health coverage',
         cardSubtitle: 'Member no.', cardSubtitleKey: 'member_id',
-        attrs: [['given_name','Charlie'],['family_name','Brown'],['member_id','M-11223344'],['plan_name','Premium Health']] },
-      { id: 'LoyaltyMembership', name: 'Loyalty Membership', icon: 'award', tone: 'amber',
+        attrs: [['given_name', 'Charlie'], ['family_name', 'Brown'], ['member_id', 'M-11223344'], ['plan_name', 'Premium Health']]
+      },
+      {
+        id: 'LoyaltyMembership', name: 'Loyalty Membership', icon: 'award', tone: 'amber',
         issuer: 'SkyHigh Rewards', issue: 'SkyHigh rewards gold tier membership',
         verify: 'Prove gold tier or higher',
         cardSubtitle: 'Tier', cardSubtitleKey: 'tier',
-        attrs: [['given_name','Diana'],['family_name','Prince'],['tier','Gold'],['points','15400']] },
-      { id: 'AgeVerification', name: 'Age Verification', icon: 'user', tone: 'green',
+        attrs: [['given_name', 'Diana'], ['family_name', 'Prince'], ['tier', 'Gold'], ['points', '15400']]
+      },
+      {
+        id: 'AgeVerification', name: 'Age Verification', icon: 'user', tone: 'green',
         issuer: 'Government Records', issue: 'Proof of age and nationality',
         verify: 'Prove age ≥ 21 without revealing DOB',
         cardSubtitle: 'Status', cardSubtitleKey: 'over_21',
-        attrs: [['given_name','Eve'],['family_name','Adams'],['over_21','true'],['over_18','true']] },
+        attrs: [['given_name', 'Eve'], ['family_name', 'Adams'], ['over_21', 'true'], ['over_18', 'true']]
+      },
     ],
   },
   {
     key: 'obv3', label: 'OBV3', short: 'Open Badges', icon: 'award',
     items: [
-      { id: 'AcademicExcellence', name: 'Academic Excellence', icon: 'award', tone: 'amber',
+      {
+        id: 'AcademicExcellence', name: 'Academic Excellence', icon: 'award', tone: 'amber',
         issuer: 'Digital University', issue: "Dean's List for Academic Excellence",
         verify: "Prove Dean's List status",
         cardSubtitle: 'Type', cardSubtitleKey: 'achievementType',
-        attrs: [['name','Dean\'s List'],['achievementType','Award'],['institution','Digital University']] },
-      { id: 'SkillsCertification', name: 'Skills Certification', icon: 'fileCheck', tone: 'violet',
+        attrs: [['name', 'Dean\'s List'], ['achievementType', 'Award'], ['institution', 'Digital University']]
+      },
+      {
+        id: 'SkillsCertification', name: 'Skills Certification', icon: 'fileCheck', tone: 'violet',
         issuer: 'Cloud Native Foundation', issue: 'Cloud Computing Specialist',
         verify: 'Prove cloud certification',
         cardSubtitle: 'Level', cardSubtitleKey: 'level',
-        attrs: [['skill','Cloud Computing'],['level','Specialist'],['issuedOn','2025-02-14']] },
-      { id: 'CourseCompletion', name: 'Course Completion', icon: 'checkCircle', tone: 'green',
+        attrs: [['skill', 'Cloud Computing'], ['level', 'Specialist'], ['issuedOn', '2025-02-14']]
+      },
+      {
+        id: 'CourseCompletion', name: 'Course Completion', icon: 'checkCircle', tone: 'green',
         issuer: 'Coursera', issue: 'Introduction to Web Development',
         verify: 'Prove course completion',
         cardSubtitle: 'Completed', cardSubtitleKey: 'completedOn',
-        attrs: [['course','Intro to Web Dev'],['completedOn','2024-11-20'],['score','98%']] },
-      { id: 'AcademicEndorsement', name: 'Academic Endorsement', icon: 'shieldCheck', tone: 'indigo',
+        attrs: [['course', 'Intro to Web Dev'], ['completedOn', '2024-11-20'], ['score', '98%']]
+      },
+      {
+        id: 'AcademicEndorsement', name: 'Academic Endorsement', icon: 'shieldCheck', tone: 'indigo',
         issuer: 'Independent Faculty', issue: 'Third-party endorsement of an existing credential',
         verify: 'Prove holder has an academic endorsement',
         cardSubtitle: 'Endorser', cardSubtitleKey: 'endorser',
-        attrs: [['endorser','Independent Faculty Review Board'],['subject','Academic Excellence'],['relationship','Reviewer']] },
-      { id: 'Diploma', name: 'BSc Diploma', icon: 'graduationCap', tone: 'amber',
+        attrs: [['endorser', 'Independent Faculty Review Board'], ['subject', 'Academic Excellence'], ['relationship', 'Reviewer']]
+      },
+      {
+        id: 'Diploma', name: 'BSc Diploma', icon: 'graduationCap', tone: 'amber',
         issuer: 'Digital University', issue: 'Bachelor of Science in Computer Science — Magna Cum Laude',
         verify: 'Prove holder has a CS diploma',
         cardSubtitle: 'Conferred', cardSubtitleKey: 'date_conferred',
-        attrs: [['name','Alice Johnson'],['student_id','STU-2020-4451'],['achievement','BSc Computer Science'],['date_conferred','2024-05-17']] },
+        attrs: [['name', 'Alice Johnson'], ['student_id', 'STU-2020-4451'], ['achievement', 'BSc Computer Science'], ['date_conferred', '2024-05-17']]
+      },
     ],
   },
   {
     key: 'ldp-vc', label: 'LDP-VC', short: 'JSON-LD VC', icon: 'scroll',
     items: [
-      { id: 'AlumniCredential', name: 'Alumni Credential', icon: 'graduationCap', tone: 'green',
+      {
+        id: 'AlumniCredential', name: 'Alumni Credential', icon: 'graduationCap', tone: 'green',
         issuer: 'Digital University', issue: 'JSON-LD alumni credential (eddsa-rdfc-2022)',
         verify: 'Prove alumni status',
         cardSubtitle: 'Class of', cardSubtitleKey: 'graduation_year',
-        attrs: [['given_name','Alice'],['degree','BS Computer Science'],['alma_mater','Digital University'],['graduation_year','2024']] },
-      { id: 'VolunteerCertificate', name: 'Volunteer Certificate', icon: 'fileCheck', tone: 'green',
+        attrs: [['given_name', 'Alice'], ['degree', 'BS Computer Science'], ['alma_mater', 'Digital University'], ['graduation_year', '2024']]
+      },
+      {
+        id: 'VolunteerCertificate', name: 'Volunteer Certificate', icon: 'fileCheck', tone: 'green',
         issuer: 'Open Source Foundation', issue: 'JSON-LD volunteer-hours certificate',
         verify: 'Prove ≥ 40 volunteer hours',
         cardSubtitle: 'Hours', cardSubtitleKey: 'hours_contributed',
-        attrs: [['organization','Open Source Foundation'],['role','Maintainer'],['hours_contributed','120']] },
+        attrs: [['organization', 'Open Source Foundation'], ['role', 'Maintainer'], ['hours_contributed', '120']]
+      },
     ],
   },
   {
     key: 'jwt-vc', label: 'JWT-VC', short: 'W3C JWT VC', icon: 'fileSig',
     items: [
-      { id: 'EventTicket', name: 'Event Ticket', icon: 'calendar', tone: 'amber',
+      {
+        id: 'EventTicket', name: 'Event Ticket', icon: 'calendar', tone: 'amber',
         issuer: 'Identity Summit', issue: 'Conference admission ticket signed as JWT VC',
         verify: 'Prove ticket validity at entry',
         cardSubtitle: 'Seat', cardSubtitleKey: 'seat',
-        attrs: [['event_name','Identity Summit 2026'],['venue','Berlin'],['seat','GA-1042'],['event_date','2026-09-14']] },
-      { id: 'ResearchAttestation', name: 'Research Attestation', icon: 'fileSig', tone: 'violet',
+        attrs: [['event_name', 'Identity Summit 2026'], ['venue', 'Berlin'], ['seat', 'GA-1042'], ['event_date', '2026-09-14']]
+      },
+      {
+        id: 'ResearchAttestation', name: 'Research Attestation', icon: 'fileSig', tone: 'violet',
         issuer: 'Independent Research Lab', issue: 'JSON-LD researcher attestation wrapped in a JWT',
         verify: 'Prove research affiliation',
         cardSubtitle: 'Area', cardSubtitleKey: 'project',
-        attrs: [['institution','Independent Research Lab'],['role','Principal Investigator'],['project','VC Field Study']] },
+        attrs: [['institution', 'Independent Research Lab'], ['role', 'Principal Investigator'], ['project', 'VC Field Study']]
+      },
     ],
   },
   {
     key: 'mdl', label: 'mDL', short: 'Mobile Document', icon: 'cards',
     items: [
-      { id: 'mDL', name: "Mobile Driver's License", icon: 'idCard', tone: 'indigo',
+      {
+        id: 'mDL', name: "Mobile Driver's License", icon: 'idCard', tone: 'indigo',
         issuer: 'Department of Motor Vehicles', issue: 'ISO 18013-5 compliant mDL',
         verify: 'Prove driving privileges and age',
         cardSubtitle: 'License no.', cardSubtitleKey: 'document_number',
-        attrs: [['given_name','Alice'],['family_name','Johnson'],['document_number','DL-9381472'],['birth_date','1990-07-15']] },
+        attrs: [['given_name', 'Alice'], ['family_name', 'Johnson'], ['document_number', 'DL-9381472'], ['birth_date', '1990-07-15']]
+      },
     ],
   },
 ]
@@ -591,15 +623,15 @@ function PhoneVerifyFlow({ item, fmt, stage, verifiedClaims }: PhoneFlowProps) {
   const isDone = stage >= 3
   const banner =
     stage === 1 ? 'Review disclosures' :
-    stage === 2 ? 'Presenting…' :
-    'Sent successfully'
+      stage === 2 ? 'Presenting…' :
+        'Sent successfully'
 
   // Prefer real verified claims when available; fall back to sample attrs.
   const renderedAttrs: Array<[string, string]> = isDone && verifiedClaims
     ? Object.entries(verifiedClaims)
-        .filter(([k]) => !k.startsWith('__'))
-        .slice(0, 3)
-        .map(([k, v]): [string, string] => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)])
+      .filter(([k]) => !k.startsWith('__'))
+      .slice(0, 3)
+      .map(([k, v]): [string, string] => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)])
     : item.attrs.slice(0, 3)
 
   return (
@@ -666,3 +698,4 @@ function WalletCard({ item, fmt }: { item: CatalogItem; fmt: string }) {
     </div>
   )
 }
+

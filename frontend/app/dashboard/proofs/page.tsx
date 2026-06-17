@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { proofApi, connectionApi, credentialApi, credentialDefinitionApi, schemaApi } from '../../../lib/api';
 import { Icon } from '../../components/ui/Icons';
@@ -51,13 +52,28 @@ interface CredentialDefinition {
 
 export default function ProofsPage() {
   const { tenantId } = useAuth();
+  const searchParams = useSearchParams();
   const [proofs, setProofs] = useState<Proof[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [connections, setConnections] = useState<Connection[]>([]);
+
+  const filteredProofs = useMemo(() => {
+    const q = (searchParams.get('q') ?? '').trim().toLowerCase();
+    if (!q) return proofs;
+    return proofs.filter(p => {
+      const connLabel = connections.find(c => c.id === p.connectionId)?.theirLabel ?? '';
+      return (
+        p.id.toLowerCase().includes(q) ||
+        (p.state || '').toLowerCase().includes(q) ||
+        connLabel.toLowerCase().includes(q)
+      );
+    });
+  }, [proofs, connections, searchParams]);
+
   // Request proof states
   const [showRequestModal, setShowRequestModal] = useState<boolean>(false);
-  const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
   const [proofAttributes, setProofAttributes] = useState<{ name: string; restrictions: any[] }[]>([{ name: '', restrictions: [] }]);
   const [isRequesting, setIsRequesting] = useState<boolean>(false);
@@ -920,7 +936,7 @@ export default function ProofsPage() {
               </tr>
             </thead>
             <tbody>
-              {proofs.map((proof) => (
+              {filteredProofs.map((proof) => (
                 <tr
                   key={proof.id}
                   style={{ cursor: 'pointer' }}
@@ -1004,7 +1020,7 @@ export default function ProofsPage() {
                       required
                     >
                       <option value="">Select Connection</option>
-                      {connections.map((conn) => (
+                      {[...connections].sort((a, b) => (a.theirLabel || '').localeCompare(b.theirLabel || '')).map((conn) => (
                         <option key={conn.id} value={conn.id}>
                           {conn.theirLabel || 'Unknown'} ({conn.id.substring(0, 8)}...)
                         </option>

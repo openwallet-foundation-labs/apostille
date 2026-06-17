@@ -192,7 +192,7 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
   return (
     <div className="flex h-screen flex-col">
       {/* Header */}
-      <div className="bg-surface-50 dark:bg-surface-900 border-b border-border-secondary px-6 py-4">
+      <div className="bg-surface-50 border-b border-border-secondary px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <button
@@ -221,7 +221,7 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
                   toast.error(`Failed: ${error.message}`);
                 }
               }}
-              className="px-3 py-2 text-sm border border-border-secondary text-text-secondary rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+              className="px-3 py-2 text-sm border border-border-secondary text-text-secondary rounded-lg hover:bg-surface-100 transition-colors"
             >
               Mark All Read
             </button>
@@ -245,7 +245,7 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 flex flex-col">
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-6 bg-surface-100 dark:bg-surface-800">
+          <div className="flex-1 overflow-y-auto p-6 bg-surface-100">
             {messages.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-text-tertiary">No messages yet. Start the conversation!</p>
@@ -253,7 +253,7 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
             ) : (
               <div className="space-y-4">
                 {messages.map((message: any) => (
-                  <div key={message.id} className="bg-surface-50 dark:bg-surface-900 rounded-lg p-4 shadow-sm">
+                  <div key={message.id} className="bg-surface-50 rounded-lg p-4 shadow-sm">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <p className="font-medium text-text-primary">
@@ -277,7 +277,7 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
           </div>
 
           {/* Message Input */}
-          <div className="bg-surface-50 dark:bg-surface-900 border-t border-border-secondary p-4">
+          <div className="bg-surface-50 border-t border-border-secondary p-4">
             <form onSubmit={handleSendMessage} className="flex space-x-3">
               <input
                 type="text"
@@ -299,7 +299,7 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
         </div>
 
         {/* Members Sidebar */}
-        <div className="w-64 bg-surface-50 dark:bg-surface-900 border-l border-border-secondary p-4 overflow-y-auto">
+        <div className="w-64 bg-surface-50 border-l border-border-secondary p-4 overflow-y-auto">
           <h3 className="font-semibold text-text-primary mb-4">Members</h3>
           {roster?.members?.filter((m: any) => m.status === 'active').length === 0 ? (
             <p className="text-sm text-text-tertiary">No active members</p>
@@ -330,7 +330,7 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
       {/* Invite Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-surface-50 dark:bg-surface-900 rounded-lg p-6 w-full max-w-md">
+          <div className="bg-surface-50 rounded-lg p-6 w-full max-w-md">
             <h2 className="text-xl font-bold mb-4">Invite Member</h2>
 
             <div className="space-y-4">
@@ -344,7 +344,7 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
                   className="w-full px-3 py-2 border border-border-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   <option value="">Choose a connection...</option>
-                  {connections.map((conn) => (
+                  {[...connections].sort((a, b) => (a.theirLabel || '').localeCompare(b.theirLabel || '')).map((conn) => (
                     <option key={conn.id} value={conn.id}>
                       {conn.theirLabel || conn.theirDid}
                     </option>
@@ -365,7 +365,7 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
                   setShowInviteModal(false);
                   setSelectedConnection('');
                 }}
-                className="flex-1 px-4 py-2 border border-border-secondary rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                className="flex-1 px-4 py-2 border border-border-secondary rounded-lg hover:bg-surface-100 transition-colors"
               >
                 Cancel
               </button>
@@ -377,20 +377,20 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
       {/* Invitation URL Modal */}
       {showInvitationUrl && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-surface-50 dark:bg-surface-900 rounded-lg p-6 w-full max-w-2xl">
+          <div className="bg-surface-50 rounded-lg p-6 w-full max-w-2xl">
             <h2 className="text-xl font-bold mb-4">Share Invitation Link</h2>
 
             <p className="text-text-secondary mb-4">
               Send this link to the person you want to invite to the group. They can click it or paste it in the "Join Group" page.
             </p>
 
-            <div className="bg-surface-100 dark:bg-surface-800 p-4 rounded-lg mb-4">
+            <div className="bg-surface-100 p-4 rounded-lg mb-4">
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={invitationUrl}
                   readOnly
-                  className="flex-1 px-3 py-2 bg-surface-50 dark:bg-surface-900 border border-border-secondary rounded-lg text-sm font-mono"
+                  className="flex-1 px-3 py-2 bg-surface-50 border border-border-secondary rounded-lg text-sm font-mono"
                 />
                 <button
                   onClick={handleCopyInvitation}
@@ -407,7 +407,7 @@ export default function GroupChatPage({ params }: { params: Promise<{ roomId: st
                   setShowInvitationUrl(false);
                   setInvitationUrl('');
                 }}
-                className="px-4 py-2 border border-border-secondary rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                className="px-4 py-2 border border-border-secondary rounded-lg hover:bg-surface-100 transition-colors"
               >
                 Close
               </button>

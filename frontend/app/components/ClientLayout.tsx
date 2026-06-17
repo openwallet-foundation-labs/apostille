@@ -1,8 +1,8 @@
 'use client';
 
-import React, { ReactNode, useEffect, useState } from 'react';
+import React, { ReactNode, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ThemeToggle } from './ThemeProvider';
 import { Icon, CloseIcon, MenuIcon } from './ui/Icons';
@@ -37,6 +37,7 @@ const NAV_SECTIONS: { title: string; items: { href: string; label: string; icon:
       { href: '/dashboard/oid4vci', label: 'Issue (OID4VCI)', icon: 'send' },
       { href: '/dashboard/oid4vp', label: 'Verify (OID4VP)', icon: 'fileCheck' },
       { href: '/dashboard/workflows', label: 'Workflows', icon: 'workflow' },
+      { href: '/dashboard/workflows-designer', label: 'Workflow Designer', icon: 'workflow' },
     ],
   },
   {
@@ -54,6 +55,7 @@ const NAV_SECTIONS: { title: string; items: { href: string; label: string; icon:
       { href: '/dashboard/calendar', label: 'Calendar', icon: 'calendar' },
       { href: '/dashboard/badges', label: 'OpenBadges', icon: 'award' },
       { href: '/dashboard/poe', label: 'Proof of Execution', icon: 'log' },
+      // { href: '/wallet/demo', label: 'Wallet Demo', icon: 'qr' }
     ],
   },
 ];
@@ -67,7 +69,38 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
   const { isAuthenticated, isLoading, logout, tenantId } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState(searchParams.get('q') ?? '');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  const handleSearch = (value: string) => {
+    setSearchValue(value);
+    const params = new URLSearchParams(searchParams.toString());
+    if (value.trim()) {
+      params.set('q', value.trim());
+    } else {
+      params.delete('q');
+    }
+    router.replace(`${pathname}?${params.toString()}`);
+  };
+
+  // Clear search input when navigating to a different page
+  useEffect(() => {
+    setSearchValue(searchParams.get('q') ?? '');
+  }, [pathname, searchParams]);
 
   const isPublicPage = pathname === '/login' || pathname === '/signup' || pathname === '/privacy-policy';
   const availableForBothPublicAndProtectedRoutes = pathname.includes('wallet');
@@ -323,8 +356,11 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
               position: 'relative' as const,
             }} className="hidden md:block">
               <input
+                ref={searchInputRef}
                 type="text"
                 placeholder="Search connections, credentials, DIDs..."
+                value={searchValue}
+                onChange={(e) => handleSearch(e.target.value)}
                 style={{
                   width: '100%', height: 32,
                   padding: '0 12px 0 32px',

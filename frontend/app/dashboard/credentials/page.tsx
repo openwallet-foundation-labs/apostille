@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { credentialApi, credentialDefinitionApi, connectionApi, schemaApi } from '../../../lib/api';
 import { Dialog, Transition } from '@headlessui/react';
@@ -37,6 +38,7 @@ interface CredentialDefinition {
 
 export default function CredentialsPage() {
   const { tenantId } = useAuth();
+  const searchParams = useSearchParams();
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +54,54 @@ export default function CredentialsPage() {
   const [isIssuing, setIsIssuing] = useState<boolean>(false);
   const [issueSuccess, setIssueSuccess] = useState<boolean>(false);
   
+  type CredSortKey = 'id' | 'state' | 'createdAt' | 'connectionId';
+  const [credSort, setCredSort] = useState<{ key: CredSortKey; dir: 'asc' | 'desc' }>({ key: 'createdAt', dir: 'desc' });
+
+  const CRED_STATE_RANK: Record<string, number> = {
+    done: 0,
+    'credential-issued': 1, 'credential-received': 1,
+    'offer-sent': 2, 'offer-received': 2,
+    'proposal-sent': 3, 'proposal-received': 3,
+    abandoned: 4,
+  };
+  function credStateRank(state: string) { return CRED_STATE_RANK[state?.toLowerCase()] ?? 99; }
+
+  function toggleCredSort(key: CredSortKey) {
+    setCredSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+  function credSortArrow(key: CredSortKey) {
+    if (credSort.key !== key) return <span style={{ color: 'var(--ink-5)', marginLeft: 4 }}>↕</span>;
+    return <span style={{ marginLeft: 4 }}>{credSort.dir === 'asc' ? '↑' : '↓'}</span>;
+  }
+
+  const filteredCredentials = useMemo(() => {
+    const q = (searchParams.get('q') ?? '').trim().toLowerCase();
+    const filtered = q
+      ? credentials.filter(c => {
+          const connLabel = connections.find(cn => cn.id === c.connectionId)?.theirLabel ?? '';
+          return (
+            c.id.toLowerCase().includes(q) ||
+            (c.state || '').toLowerCase().includes(q) ||
+            connLabel.toLowerCase().includes(q) ||
+            Object.values(c.attributes ?? {}).some(v => String(v).toLowerCase().includes(q))
+          );
+        })
+      : credentials;
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (credSort.key === 'createdAt') {
+        cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      } else if (credSort.key === 'state') {
+        cmp = credStateRank(a.state) - credStateRank(b.state);
+      } else if (credSort.key === 'id') {
+        cmp = a.id.localeCompare(b.id);
+      } else if (credSort.key === 'connectionId') {
+        cmp = (a.connectionId || '').localeCompare(b.connectionId || '');
+      }
+      return credSort.dir === 'asc' ? cmp : -cmp;
+    });
+  }, [credentials, connections, credSort, searchParams]);
+
   // Credential details modal states
   const [selectedCredential, setSelectedCredential] = useState<Credential | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState<boolean>(false);
@@ -159,7 +209,7 @@ export default function CredentialsPage() {
         console.log('Schema data:', schemaData);
         
         if (schemaData.success && schemaData.schema) {
-          const attrNames = schemaData.schema.schema.attrNames || [];
+          const attrNames = schemaData.schema.schema?.attrNames || schemaData.schema.attrNames || [];
           console.log('Schema attributes:', attrNames);
           setSchemaAttributes(attrNames);
           
@@ -357,15 +407,23 @@ export default function CredentialsPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Credential</th>
-                <th>State</th>
-                <th>Created</th>
-                <th>Connection</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleCredSort('id')}>
+                  Credential{credSortArrow('id')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleCredSort('state')}>
+                  State{credSortArrow('state')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleCredSort('createdAt')}>
+                  Created{credSortArrow('createdAt')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleCredSort('connectionId')}>
+                  Connection{credSortArrow('connectionId')}
+                </th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {credentials.map((credential) => (
+              {filteredCredentials.map((credential) => (
                 <tr key={credential.id} style={{ cursor: 'pointer' }} onClick={() => openDetailsModal(credential)}>
                   <td>
                     <span className="mono" style={{ fontSize: 12 }}>{credential.id.slice(0, 28)}...</span>
@@ -432,17 +490,27 @@ export default function CredentialsPage() {
                       required
                     >
                       <option value="">Select Connection</option>
-                      {connections.map((conn) => (
-                        <option key={conn.id} value={conn.id}>
-                          {conn.theirLabel || 'Unknown'} ({conn.id.substring(0, 8)}...)
-                        </option>
-                      ))}
+                      {[...connections]
+                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                        .map((conn) => (
+                          <option key={conn.id} value={conn.id} title={conn.id}>
+                            {conn.theirLabel || 'Unknown'} — {new Date(conn.createdAt).toLocaleDateString()}
+                          </option>
+                        ))}
                     </select>
                   </div>
-                  
+
                   <div>
-                    <label className="form-label">
-                      Credential Definition
+                    <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Credential Definition</span>
+                      <a
+                        href="/dashboard/credential-definitions"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: 11.5, color: 'var(--accent)', fontWeight: 500 }}
+                      >
+                        Create new →
+                      </a>
                     </label>
                     <select
                       value={selectedCredDefId}
@@ -451,11 +519,23 @@ export default function CredentialsPage() {
                       required
                     >
                       <option value="">Select Credential Definition</option>
-                      {credentialDefinitions.map((credDef) => (
-                        <option key={credDef.id} value={credDef.credentialDefinitionId}>
-                          {credDef.credentialDefinitionId}...
-                        </option>
-                      ))}
+                      {[...credentialDefinitions]
+                        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+                        .map((credDef) => {
+                          const shortId = credDef.credentialDefinitionId.length > 32
+                            ? '...' + credDef.credentialDefinitionId.slice(-28)
+                            : credDef.credentialDefinitionId;
+                          const dateStr = credDef.createdAt ? new Date(credDef.createdAt).toLocaleDateString() : '';
+                          return (
+                            <option
+                              key={credDef.id}
+                              value={credDef.credentialDefinitionId}
+                              title={credDef.credentialDefinitionId}
+                            >
+                              {shortId}{dateStr ? ` — ${dateStr}` : ''}
+                            </option>
+                          );
+                        })}
                     </select>
                   </div>
                   
@@ -545,11 +625,20 @@ export default function CredentialsPage() {
                 leaveFrom="opacity-100 scale-100"
                 leaveTo="opacity-0 scale-95"
               >
-                <Dialog.Panel className="modal-container max-w-3xl transform overflow-hidden text-left align-middle transition-all">
-                  <Dialog.Title as="h3" className="text-lg font-medium leading-6 text-text-primary mb-4">
-                    Credential Details
-                  </Dialog.Title>
-
+                <Dialog.Panel className="modal-container max-w-3xl transform text-left align-middle transition-all">
+                  <div className="modal-header">
+                    <Dialog.Title as="h3" className="modal-title">
+                      Credential Details
+                    </Dialog.Title>
+                    <button
+                      type="button"
+                      onClick={closeDetailsModal}
+                      className="text-text-secondary hover:text-text-primary transition-colors p-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="modal-body">
                   {loadingDetails ? (
                     <div className="flex justify-center items-center p-8">
                       <div className="spinner h-8 w-8"></div>
@@ -686,6 +775,7 @@ export default function CredentialsPage() {
                                       ) : (
                     <p className="text-sm text-text-tertiary p-4">No credential information available.</p>
                   )}
+                  </div>
                 </Dialog.Panel>
               </Transition.Child>
             </div>

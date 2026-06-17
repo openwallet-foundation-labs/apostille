@@ -142,7 +142,7 @@ export default function JoinGroupPage() {
 
         {/* Invitation Details */}
         {invitationData && (
-          <div className="border border-border-secondary rounded-lg p-6 mb-6 bg-surface-100 dark:bg-surface-800">
+          <div className="border border-border-secondary rounded-lg p-6 mb-6 bg-surface-100">
             <h2 className="text-lg font-semibold mb-4">Invitation Details</h2>
 
             <div className="space-y-3">
@@ -183,7 +183,7 @@ export default function JoinGroupPage() {
                     className="w-full px-3 py-2 border border-border-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   >
                     <option value="">-- Select a connection --</option>
-                    {connections.map((conn) => (
+                    {[...connections].sort((a, b) => (a.theirLabel || '').localeCompare(b.theirLabel || '')).map((conn) => (
                       <option key={conn.id} value={conn.id}>
                         {conn.theirLabel || conn.theirDid?.substring(0, 20) + '...' || `Connection ${conn.id.substring(0, 8)}`}
                       </option>
@@ -218,7 +218,7 @@ export default function JoinGroupPage() {
         <div className="mt-6">
           <button
             onClick={() => router.push('/groups')}
-            className="w-full px-4 py-2 border border-border-secondary rounded-lg hover:bg-surface-100 dark:bg-surface-800 transition-colors"
+            className="w-full px-4 py-2 border border-border-secondary rounded-lg hover:bg-surface-100 transition-colors"
           >
             Back to Groups
           </button>

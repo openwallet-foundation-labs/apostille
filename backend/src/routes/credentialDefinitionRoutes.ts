@@ -420,6 +420,7 @@ router.route('/')
             issuer?: string;
             issuer_url?: string;
             issuer_description?: string;
+            category?: 'education' | 'professional' | 'membership' | 'government' | 'healthcare' | 'custom';
           };
           branding?: {
             primary_background_color?: string;

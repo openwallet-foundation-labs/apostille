@@ -70,6 +70,14 @@ const TOKEN_REFRESH_INTERVAL = 14 * 60 * 1000; // 14 minutes
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // Store access token in memory only (XSS protection)
   const [accessToken, setAccessToken] = useState<string | null>(null);
+
+  // Keep tokenStore in sync synchronously so API calls fired in child effects
+  // during the same flush always see the latest token (avoids the race where
+  // child useEffect runs before this component's useEffect).
+  const setToken = useCallback((token: string | null) => {
+    setStoreAccessToken(token);
+    setAccessToken(token);
+  }, []);
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -96,14 +104,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         if (response.ok) {
           const data = await response.json();
-          setAccessToken(data.accessToken || data.token);
+          setToken(data.accessToken || data.token);
           setTenantId(data.tenantId);
           setEmail(data.email);
           return true;
         }
 
         // Token invalid or expired - clear state
-        setAccessToken(null);
+        setToken(null);
         setTenantId(null);
         setEmail(null);
         return false;
@@ -113,13 +121,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           return false;
         }
         console.error('[Auth] Token refresh error:', error);
-        setAccessToken(null);
+        setToken(null);
         setTenantId(null);
         setEmail(null);
         return false;
       }
     },
-    []
+    [setToken]
   );
 
   /**
@@ -179,12 +187,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [refreshAccessToken, startTokenRefresh, stopTokenRefresh]);
 
-  /**
-   * Sync access token to the token store for use by API utilities
-   */
-  useEffect(() => {
-    setStoreAccessToken(accessToken);
-  }, [accessToken]);
 
   /**
    * Handle auth errors from API calls
@@ -228,7 +230,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const data = await response.json();
 
       // Store access token in memory only (XSS protection)
-      setAccessToken(data.accessToken || data.token);
+      setToken(data.accessToken || data.token);
       setTenantId(data.tenantId);
       setEmail(data.email || credentials.email);
 
@@ -239,7 +241,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       router.push('/dashboard');
     } catch (error) {
       console.error('Login failed:', error);
-      setAccessToken(null);
+      setToken(null);
       setTenantId(null);
       setEmail(null);
       throw error;
@@ -294,7 +296,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (autoLogin) {
         // Store access token in memory only (XSS protection)
-        setAccessToken(responseData.accessToken || responseData.token);
+        setToken(responseData.accessToken || responseData.token);
         setTenantId(newTenantId);
         setEmail(data.email);
 
@@ -336,7 +338,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
 
       // Clear in-memory state
-      setAccessToken(null);
+      setToken(null);
       setTenantId(null);
       setEmail(null);
 
@@ -345,7 +347,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error('Error during logout:', error);
       // Still clear state even if API call fails
       clearAccessToken();
-      setAccessToken(null);
+      setToken(null);
       setTenantId(null);
       setEmail(null);
       router.push('/login');

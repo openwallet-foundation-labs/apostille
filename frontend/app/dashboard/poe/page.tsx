@@ -158,7 +158,7 @@ export default function PoePage() {
             case 'declined':
                 return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
             default:
-                return 'bg-surface-100 text-text-secondary dark:bg-surface-700 dark:text-text-secondary';
+                return 'bg-surface-100 text-text-secondary dark:bg-surface-300 dark:text-white';
         }
     };
 
@@ -169,7 +169,7 @@ export default function PoePage() {
             case 'prover':
                 return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200';
             default:
-                return 'bg-surface-100 text-text-secondary dark:bg-surface-700 dark:text-text-secondary';
+                return 'bg-surface-100 text-text-secondary dark:bg-surface-300 dark:text-white';
         }
     };
 
@@ -237,7 +237,7 @@ export default function PoePage() {
                                     className="input w-full"
                                 >
                                     <option value="">Select a connection</option>
-                                    {connections.map((conn) => (
+                                    {[...connections].sort((a, b) => (a.theirLabel || '').localeCompare(b.theirLabel || '')).map((conn) => (
                                         <option key={conn.id} value={conn.id}>
                                             {conn.theirLabel || conn.id.slice(0, 12) + '...'}
                                         </option>

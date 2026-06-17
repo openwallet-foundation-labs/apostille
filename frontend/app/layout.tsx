@@ -3,8 +3,9 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "./context/AuthContext";
 import { NotificationProvider } from "./context/NotificationContext";
-import { ToastContainer } from "react-toastify";
+import { CallProvider } from "./context/CallContext";
 import { ThemeProvider, ColorSchemeUpdater } from "./components/ThemeProvider";
+import ToastWrapper from "./components/ToastWrapper";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -82,22 +83,12 @@ export default function RootLayout({
           <ColorSchemeUpdater />
           <AuthProvider>
             <NotificationProvider>
-              {children}
+              <CallProvider>
+                {children}
+              </CallProvider>
             </NotificationProvider>
           </AuthProvider>
-          <ToastContainer
-            position="top-right"
-            autoClose={5000}
-            hideProgressBar={false}
-            newestOnTop={false}
-            closeOnClick
-            rtl={false}
-            pauseOnFocusLoss
-            draggable
-            pauseOnHover
-            theme="light"
-            className="toast-custom"
-          />
+          <ToastWrapper />
         </ThemeProvider>
       </body>
     </html>
