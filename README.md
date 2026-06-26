@@ -133,3 +133,7 @@ The visual credential designer allows you to:
 ## License
 
 Apache-2.0
+
+## Governance
+
+The Project Charter for Apostille can be found here: [https://github.com/openwallet-foundation/technical-project-charters/blob/main/Apostille%20Technical%20Charter%20(FINAL%2003.06.26).pdf](https://github.com/openwallet-foundation/technical-project-charters/blob/main/Apostille%20Technical%20Charter%20(FINAL%2003.06.26).pdf)
